@@ -46,7 +46,7 @@ interface DebtItem {
 interface SettleUpModalProps {
   visible: boolean;
   onClose: () => void;
-  onSuccess?: () => void;
+  onSuccess?: (settledAmount: number) => void;
 }
 
 const formatMoney = (amount: number): string => {
@@ -62,10 +62,12 @@ export const SettleUpModal: React.FC<SettleUpModalProps> = ({
 }) => {
   const { userId } = useAuth();
   
-  const [selectedDebtId, setSelectedDebtId] = useState<string | null>(null);
+  const [selectedDebtIds, setSelectedDebtIds] = useState<Set<string>>(new Set());
   const [phase, setPhase] = useState<SettlePhase>('select');
-  const [settledFriend, setSettledFriend] = useState<string>('');
+  const [settledFriends, setSettledFriends] = useState<string[]>([]);
   const [settledAmount, setSettledAmount] = useState<number>(0);
+  const [settleProgress, setSettleProgress] = useState<number>(0);
+  const [totalToSettle, setTotalToSettle] = useState<number>(0);
 
   // Animation values
   const progressAnim = useRef(new Animated.Value(0)).current;
@@ -83,10 +85,12 @@ export const SettleUpModal: React.FC<SettleUpModalProps> = ({
   // Reset when modal opens
   useEffect(() => {
     if (visible) {
-      setSelectedDebtId(null);
+      setSelectedDebtIds(new Set());
       setPhase('select');
-      setSettledFriend('');
+      setSettledFriends([]);
       setSettledAmount(0);
+      setSettleProgress(0);
+      setTotalToSettle(0);
       progressAnim.setValue(0);
       scaleAnim.setValue(0);
       fadeAnim.setValue(0);
@@ -114,34 +118,108 @@ export const SettleUpModal: React.FC<SettleUpModalProps> = ({
     return debtList;
   }, [dashboard]);
 
+  // Toggle debt selection
+  const toggleDebtSelection = (friendId: string): void => {
+    setSelectedDebtIds(prev => {
+      const newSet = new Set(prev);
+      if (newSet.has(friendId)) {
+        newSet.delete(friendId);
+      } else {
+        newSet.add(friendId);
+      }
+      return newSet;
+    });
+  };
+
+  // Toggle select all / deselect all
+  const allSelected = debts.length > 0 && selectedDebtIds.size === debts.length;
+  const toggleSelectAll = (): void => {
+    if (allSelected) {
+      setSelectedDebtIds(new Set());
+    } else {
+      setSelectedDebtIds(new Set(debts.map(d => d.friendId)));
+    }
+  };
+
+  // Get selected debts
+  const selectedDebts = debts.filter(d => selectedDebtIds.has(d.friendId));
+  const totalSelectedAmount = selectedDebts.reduce((sum, d) => sum + d.amount, 0);
+
   // Handle settle
   const handleSettle = async (): Promise<void> => {
-    if (!selectedDebtId || !userId) return;
+    if (selectedDebts.length === 0 || !userId) return;
 
-    const selectedDebt = debts.find(d => d.friendId === selectedDebtId);
-    if (!selectedDebt) return;
-
-    setSettledFriend(selectedDebt.friendUsername);
-    setSettledAmount(selectedDebt.amount);
+    const friendNames = selectedDebts.map(d => d.friendUsername);
+    const totalAmount = selectedDebts.reduce((sum, d) => sum + d.amount, 0);
+    
+    setSettledFriends(friendNames);
+    setSettledAmount(totalAmount);
+    setTotalToSettle(selectedDebts.length);
+    setSettleProgress(0);
     setPhase('transferring');
+    
+    // Start with a small initial progress animation
+    progressAnim.setValue(0);
+    Animated.timing(progressAnim, {
+      toValue: 0.08,
+      duration: 1500,
+      easing: Easing.out(Easing.cubic),
+      useNativeDriver: false,
+    }).start();
 
-    // Start transfer animation
-    Animated.sequence([
-      Animated.timing(progressAnim, {
-        toValue: 1,
-        duration: 2000,
-        easing: Easing.bezier(0.4, 0, 0.2, 1),
-        useNativeDriver: false,
-      }),
-    ]).start(async () => {
-      try {
+    // Settle all selected debts and animate progress together
+    try {
+      let successCount = 0;
+      const totalDebts = selectedDebts.length;
+      
+      // Calculate animation duration based on number of users
+      // 5 seconds for 1 user, +0.5 seconds per additional user
+      const baseDuration = 5000;
+      const additionalPerUser = 500;
+      const totalDuration = baseDuration + (additionalPerUser * (totalDebts - 1));
+      const minDurationPerUser = totalDuration / totalDebts;
+      
+      for (let i = 0; i < selectedDebts.length; i++) {
+        const debt = selectedDebts[i];
+        const startTime = Date.now();
+        
         const result = await settle({
           fromId: userId as Id<'users'>,
-          toId: selectedDebt.friendId as Id<'users'>,
-          amount: selectedDebt.amount,
+          toId: debt.friendId as Id<'users'>,
+          amount: debt.amount,
         });
 
         if (result.success) {
+          successCount++;
+          setSettleProgress(successCount);
+          
+          // Animate progress bar (0.08 to 0.92 range, save last bit for completion)
+          const progressValue = 0.08 + (0.84 * successCount / totalDebts);
+          Animated.timing(progressAnim, {
+            toValue: progressValue,
+            duration: 2000,
+            easing: Easing.out(Easing.cubic),
+            useNativeDriver: false,
+          }).start();
+          
+          // Ensure minimum time per settlement for visible animation
+          // Always wait the full duration, including for last/single user
+          const elapsed = Date.now() - startTime;
+          const remainingDelay = Math.max(0, minDurationPerUser - elapsed);
+          if (remainingDelay > 0) {
+            await new Promise(resolve => setTimeout(resolve, remainingDelay));
+          }
+        }
+      }
+
+      if (successCount > 0) {
+        // Ensure progress bar is full before showing success
+        Animated.timing(progressAnim, {
+          toValue: 1,
+          duration: 1500,
+          easing: Easing.out(Easing.cubic),
+          useNativeDriver: false,
+        }).start(() => {
           setPhase('success');
           
           // Success animation
@@ -160,38 +238,46 @@ export const SettleUpModal: React.FC<SettleUpModalProps> = ({
 
           // Auto close after delay
           setTimeout(() => {
-            onSuccess?.();
+            onSuccess?.(totalAmount);
             onClose();
           }, 2500);
-        } else {
-          Alert.alert('Error', result.error || 'Settlement failed');
-          setPhase('select');
-        }
-      } catch (error) {
-        console.error('Settle error:', error);
-        Alert.alert('Error', 'Something went wrong');
+        });
+      } else {
+        Alert.alert('Error', 'Settlement failed');
         setPhase('select');
       }
-    });
+    } catch (error) {
+      console.error('Settle error:', error);
+      Alert.alert('Error', 'Something went wrong');
+      setPhase('select');
+    }
   };
-
-  const selectedDebt = debts.find(d => d.friendId === selectedDebtId);
 
   // Render different phases
   const renderContent = (): React.ReactElement => {
     switch (phase) {
       case 'transferring':
+        const friendsText = settledFriends.length === 1 
+          ? settledFriends[0] 
+          : settledFriends.length === 2 
+            ? `${settledFriends[0]} & ${settledFriends[1]}`
+            : `${settledFriends[0]} & ${settledFriends.length - 1} others`;
         return (
           <View style={styles.transferContainer}>
             <View style={styles.transferHeader}>
-              <Text style={styles.transferTitle}>Sending Payment</Text>
+              <Text style={styles.transferTitle}>Sending Payments</Text>
               <Text style={styles.transferSubtitle}>
-                to {settledFriend}
+                to {friendsText}
               </Text>
             </View>
 
             <View style={styles.amountDisplay}>
               <Text style={styles.amountText}>RM {formatMoney(settledAmount)}</Text>
+              {totalToSettle > 1 && (
+                <Text style={styles.progressText}>
+                  {settleProgress} of {totalToSettle} completed
+                </Text>
+              )}
             </View>
 
             {/* Transfer Animation */}
@@ -232,11 +318,17 @@ export const SettleUpModal: React.FC<SettleUpModalProps> = ({
               </View>
 
               <View style={styles.transferDot}>
-                <User color={COLORS.textPrimary} size={24} />
+                {settledFriends.length > 1 ? (
+                  <View style={styles.multiUserIcon}>
+                    <Text style={styles.multiUserText}>{settledFriends.length}</Text>
+                  </View>
+                ) : (
+                  <User color={COLORS.textPrimary} size={24} />
+                )}
               </View>
             </View>
 
-            <Text style={styles.transferStatus}>Processing transfer...</Text>
+            <Text style={styles.transferStatus}>Processing transfers...</Text>
             
             <Text style={styles.disclaimerText}>
               Currently doesn't move money; awaiting Ryt bank sifus to partner up ;)
@@ -245,6 +337,11 @@ export const SettleUpModal: React.FC<SettleUpModalProps> = ({
         );
 
       case 'success':
+        const successFriendsText = settledFriends.length === 1 
+          ? settledFriends[0] 
+          : settledFriends.length === 2 
+            ? `${settledFriends[0]} & ${settledFriends[1]}`
+            : `${settledFriends.slice(0, 2).join(', ')} & ${settledFriends.length - 2} more`;
         return (
           <View style={styles.successContainer}>
             <Animated.View 
@@ -260,12 +357,14 @@ export const SettleUpModal: React.FC<SettleUpModalProps> = ({
             </Animated.View>
 
             <Animated.View style={{ opacity: fadeAnim }}>
-              <Text style={styles.successTitle}>Payment Sent!</Text>
+              <Text style={styles.successTitle}>
+                {settledFriends.length > 1 ? 'Payments Sent!' : 'Payment Sent!'}
+              </Text>
               <Text style={styles.successSubtitle}>
-                RM {formatMoney(settledAmount)} sent to {settledFriend}
+                RM {formatMoney(settledAmount)} sent to {successFriendsText}
               </Text>
               <Text style={styles.successNote}>
-                Your balance has been updated
+                Your {settledFriends.length > 1 ? 'balances have' : 'balance has'} been updated
               </Text>
             </Animated.View>
           </View>
@@ -277,43 +376,59 @@ export const SettleUpModal: React.FC<SettleUpModalProps> = ({
             <View style={styles.introSection}>
               <Text style={styles.introTitle}>Who do you want to pay?</Text>
               <Text style={styles.introSubtitle}>
-                Select a friend to settle your debt
+                Select one or more friends to settle your debts
               </Text>
             </View>
 
             {debts.length > 0 ? (
-              <View style={styles.debtsList}>
-                {debts.map((debt) => {
-                  const isSelected = selectedDebtId === debt.friendId;
-                  return (
-                    <TouchableOpacity
-                      key={debt.friendId}
-                      style={[styles.debtItem, isSelected && styles.debtItemSelected]}
-                      onPress={() => setSelectedDebtId(debt.friendId)}
-                      activeOpacity={0.7}
-                    >
-                      <View style={styles.debtInfo}>
-                        <View style={[styles.avatar, isSelected && styles.avatarSelected]}>
-                          <User color={COLORS.textPrimary} size={20} />
+              <>
+                {/* Select All Button - Standalone */}
+                <TouchableOpacity 
+                  style={[styles.selectAllButton, allSelected && styles.selectAllButtonActive]}
+                  onPress={toggleSelectAll}
+                  activeOpacity={0.7}
+                >
+                  <View style={[styles.selectAllCheckbox, allSelected && styles.selectAllCheckboxActive]}>
+                    {allSelected && <Check color={COLORS.textPrimary} size={10} />}
+                  </View>
+                  <Text style={[styles.selectAllText, allSelected && styles.selectAllTextActive]}>
+                    Select All
+                  </Text>
+                </TouchableOpacity>
+
+                <View style={styles.debtsList}>
+                  {debts.map((debt) => {
+                    const isSelected = selectedDebtIds.has(debt.friendId);
+                    return (
+                      <TouchableOpacity
+                        key={debt.friendId}
+                        style={[styles.debtItem, isSelected && styles.debtItemSelected]}
+                        onPress={() => toggleDebtSelection(debt.friendId)}
+                        activeOpacity={0.7}
+                      >
+                        <View style={[styles.checkbox, isSelected && styles.checkboxSelected]}>
+                          {isSelected && <Check color={COLORS.textPrimary} size={14} />}
                         </View>
-                        <View>
-                          <Text style={styles.debtName}>{debt.friendUsername}</Text>
-                          {debt.friendName && (
-                            <Text style={styles.debtFullName}>{debt.friendName}</Text>
-                          )}
+                        <View style={styles.debtInfo}>
+                          <View style={[styles.avatar, isSelected && styles.avatarSelected]}>
+                            <User color={COLORS.textPrimary} size={20} />
+                          </View>
+                          <View>
+                            <Text style={styles.debtName}>{debt.friendUsername}</Text>
+                            {debt.friendName && (
+                              <Text style={styles.debtFullName}>{debt.friendName}</Text>
+                            )}
+                          </View>
                         </View>
-                      </View>
-                      <View style={styles.debtAmountContainer}>
-                        <Text style={styles.debtLabel}>You owe</Text>
-                        <Text style={styles.debtAmount}>RM {formatMoney(debt.amount)}</Text>
-                      </View>
-                      <View style={[styles.radio, isSelected && styles.radioSelected]}>
-                        {isSelected && <View style={styles.radioInner} />}
-                      </View>
-                    </TouchableOpacity>
-                  );
-                })}
-              </View>
+                        <View style={styles.debtAmountContainer}>
+                          <Text style={styles.debtLabel}>You owe</Text>
+                          <Text style={styles.debtAmount}>RM {formatMoney(debt.amount)}</Text>
+                        </View>
+                      </TouchableOpacity>
+                    );
+                  })}
+                </View>
+              </>
             ) : (
               <View style={styles.emptyState}>
                 <CheckCircle color={COLORS.primary} size={48} />
@@ -325,7 +440,7 @@ export const SettleUpModal: React.FC<SettleUpModalProps> = ({
             )}
 
             {/* Settle Button */}
-            {selectedDebt && (
+            {selectedDebts.length > 0 && (
               <TouchableOpacity
                 style={styles.settleButton}
                 onPress={handleSettle}
@@ -333,7 +448,8 @@ export const SettleUpModal: React.FC<SettleUpModalProps> = ({
               >
                 <View style={styles.settleButtonContent}>
                   <Text style={styles.settleButtonText}>
-                    Pay RM {formatMoney(selectedDebt.amount)}
+                    Pay RM {formatMoney(totalSelectedAmount)}
+                    {selectedDebts.length > 1 && ` to ${selectedDebts.length} people`}
                   </Text>
                   <ArrowRight color={COLORS.textPrimary} size={20} />
                 </View>
@@ -457,7 +573,6 @@ const styles = StyleSheet.create({
   },
   debtAmountContainer: {
     alignItems: 'flex-end',
-    marginRight: 12,
   },
   debtLabel: {
     fontSize: 11,
@@ -469,23 +584,57 @@ const styles = StyleSheet.create({
     fontWeight: 'bold',
     color: COLORS.error,
   },
-  radio: {
+  checkbox: {
     width: 24,
     height: 24,
-    borderRadius: 12,
+    borderRadius: 6,
     borderWidth: 2,
     borderColor: COLORS.border,
     alignItems: 'center',
     justifyContent: 'center',
+    marginRight: 12,
   },
-  radioSelected: {
+  checkboxSelected: {
+    borderColor: COLORS.primary,
+    backgroundColor: COLORS.primary,
+  },
+  selectAllButton: {
+    marginBottom: 12,
+    flexDirection: 'row',
+    alignItems: 'center',
+    alignSelf: 'flex-start',
+    backgroundColor: COLORS.cardElevated,
+    paddingVertical: 6,
+    paddingHorizontal: 10,
+    borderRadius: 8,
+    borderWidth: 1,
+    borderColor: COLORS.border,
+  },
+  selectAllButtonActive: {
+    backgroundColor: 'rgba(0, 168, 107, 0.15)',
     borderColor: COLORS.primary,
   },
-  radioInner: {
-    width: 12,
-    height: 12,
-    borderRadius: 6,
+  selectAllCheckbox: {
+    width: 16,
+    height: 16,
+    borderRadius: 4,
+    borderWidth: 1.5,
+    borderColor: COLORS.textMuted,
+    alignItems: 'center',
+    justifyContent: 'center',
+    marginRight: 6,
+  },
+  selectAllCheckboxActive: {
+    borderColor: COLORS.primary,
     backgroundColor: COLORS.primary,
+  },
+  selectAllText: {
+    fontSize: 12,
+    fontWeight: '500',
+    color: COLORS.textSecondary,
+  },
+  selectAllTextActive: {
+    color: COLORS.primary,
   },
   settleButton: {
     backgroundColor: COLORS.primary,
@@ -549,11 +698,17 @@ const styles = StyleSheet.create({
     paddingHorizontal: 32,
     paddingVertical: 20,
     marginBottom: 48,
+    alignItems: 'center',
   },
   amountText: {
     fontSize: 36,
     fontWeight: 'bold',
     color: COLORS.primary,
+  },
+  progressText: {
+    fontSize: 14,
+    color: COLORS.textSecondary,
+    marginTop: 8,
   },
   transferAnimation: {
     flexDirection: 'row',
@@ -568,6 +723,19 @@ const styles = StyleSheet.create({
     backgroundColor: COLORS.card,
     alignItems: 'center',
     justifyContent: 'center',
+  },
+  multiUserIcon: {
+    width: 32,
+    height: 32,
+    borderRadius: 16,
+    backgroundColor: COLORS.primary,
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  multiUserText: {
+    fontSize: 14,
+    fontWeight: 'bold',
+    color: COLORS.textPrimary,
   },
   transferProgressContainer: {
     flex: 1,

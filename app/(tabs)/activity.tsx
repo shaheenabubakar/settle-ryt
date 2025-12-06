@@ -337,17 +337,22 @@ export default function ActivityScreen(): React.ReactElement {
                   <Calendar color={COLORS.textSecondary} size={16} />
                   <Text style={styles.metaText}>{formatFullDate(expense.createdAt)}</Text>
                 </View>
-                <View style={styles.metaItem}>
-                  <User color={COLORS.textSecondary} size={16} />
-                  <Text style={styles.metaText}>
-                    Paid by {expense.payerId === userId ? 'You' : (expense.payerUsername || expense.payerName || 'Unknown')}
-                  </Text>
-                </View>
               </View>
 
               {/* Items */}
               <View style={styles.section}>
-                <Text style={styles.sectionTitle}>Items & Splits</Text>
+                <View style={styles.sectionHeaderRow}>
+                  <Text style={styles.sectionTitle}>Items & Splits</Text>
+                  <View style={styles.paidByBadge}>
+                    <Text style={styles.paidByLabel}>Paid by</Text>
+                    <View style={styles.paidByChip}>
+                      <User color={COLORS.textPrimary} size={12} />
+                      <Text style={styles.paidByName}>
+                        {expense.payerId === userId ? 'You' : (expense.payerUsername || expense.payerName || 'Unknown')}
+                      </Text>
+                    </View>
+                  </View>
+                </View>
                 {expense.items.map((item, index) => (
                   <View key={index} style={styles.itemCard}>
                     <View style={styles.itemHeader}>
@@ -580,6 +585,7 @@ const styles = StyleSheet.create({
   metaItem: {
     flexDirection: 'row',
     alignItems: 'center',
+    marginBottom: 8,
   },
   metaText: {
     fontSize: 14,
@@ -593,9 +599,37 @@ const styles = StyleSheet.create({
     fontSize: 13,
     fontWeight: '600',
     color: COLORS.textSecondary,
-    marginBottom: 10,
     textTransform: 'uppercase',
     letterSpacing: 0.5,
+  },
+  sectionHeaderRow: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    alignItems: 'center',
+    marginBottom: 10,
+  },
+  paidByBadge: {
+    flexDirection: 'row',
+    alignItems: 'center',
+  },
+  paidByLabel: {
+    fontSize: 12,
+    color: COLORS.textSecondary,
+    marginRight: 6,
+  },
+  paidByChip: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    backgroundColor: COLORS.primary,
+    paddingHorizontal: 10,
+    paddingVertical: 5,
+    borderRadius: 12,
+  },
+  paidByName: {
+    fontSize: 12,
+    fontWeight: '600',
+    color: COLORS.textPrimary,
+    marginLeft: 4,
   },
   itemCard: {
     backgroundColor: COLORS.card,

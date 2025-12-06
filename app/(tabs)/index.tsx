@@ -32,6 +32,8 @@ import { AddExpenseModal } from '../../components/AddExpenseModal';
 import { CreateGroupModal } from '../../components/CreateGroupModal';
 import { SettleUpModal } from '../../components/SettleUpModal';
 import { EditExpenseModal } from '../../components/EditExpenseModal';
+import { RytBankPromoModal } from '../../components/RytBankPromoModal';
+import { SuccessModal } from '../../components/SuccessModal';
 
 const COLORS = {
   background: '#121212',
@@ -126,6 +128,9 @@ export default function HomeScreen(): React.ReactElement {
   const [showAddExpense, setShowAddExpense] = useState(false);
   const [showCreateGroup, setShowCreateGroup] = useState(false);
   const [showSettleUp, setShowSettleUp] = useState(false);
+  const [showRytBankPromo, setShowRytBankPromo] = useState(false);
+  const [showDeleteSuccess, setShowDeleteSuccess] = useState(false);
+  const [lastSettledAmount, setLastSettledAmount] = useState(0);
   const [refreshing, setRefreshing] = useState(false);
   const [selectedExpenseId, setSelectedExpenseId] = useState<string | null>(null);
   const [showExpenseDetail, setShowExpenseDetail] = useState(false);
@@ -171,29 +176,167 @@ export default function HomeScreen(): React.ReactElement {
   // Animated value for net balance (number animation - only after settling)
   const animatedNetBalance = useRef(new Animated.Value(0)).current;
   const [displayedNetBalance, setDisplayedNetBalance] = useState<number>(0);
-  const prevNetBalanceRef = useRef<number | null>(null);
-  const pendingAnimationRef = useRef<boolean>(false);
+  const balanceBeforeSettleRef = useRef<number | null>(null);
+  const currentBalanceRef = useRef<number>(0);
+  const [isAnimatingBalance, setIsAnimatingBalance] = useState(false);
+  const balanceGlowAnim = useRef(new Animated.Value(0)).current;
 
-  // Update displayed balance - animate only after settling
-  useEffect(() => {
-    if (balances) {
-      const newNetBalance = balances.netBalance;
-      const prevNetBalance = prevNetBalanceRef.current;
+  // Track balance for animation
+  const prevBalanceRef = useRef<number | null>(null);
+  const isNumberAnimatingRef = useRef<boolean>(false);
+  const balanceBeforeActionRef = useRef<number | null>(null);
+  
+  // Capture balance before opening a modal (call this when opening add/edit modals)
+  const captureBalanceBeforeAction = useCallback((): void => {
+    balanceBeforeActionRef.current = displayedNetBalance;
+    console.log('Captured balance before action:', displayedNetBalance);
+  }, [displayedNetBalance]);
+  
+  // Trigger balance animation manually (called from modal callbacks)
+  const triggerBalanceAnimation = useCallback((): void => {
+    // Use the balance captured before the action
+    const oldBalance = balanceBeforeActionRef.current;
+    
+    // Delay before starting animation (wait for modal to close and screen to settle)
+    setTimeout(() => {
+      const newBalance = currentBalanceRef.current;
       
-      if (pendingAnimationRef.current && prevNetBalance !== null && newNetBalance !== prevNetBalance) {
-        // Settle just happened and balance changed - animate the number
-        pendingAnimationRef.current = false;
+      console.log('Animation check - old:', oldBalance, 'new:', newBalance);
+      
+      // Only animate if we have an old balance and it changed
+      if (oldBalance !== null && oldBalance !== newBalance && !isNumberAnimatingRef.current) {
+        console.log('Starting animation:', oldBalance, '->', newBalance);
         
-        animatedNetBalance.setValue(prevNetBalance);
+        isNumberAnimatingRef.current = true;
+        setIsAnimatingBalance(true);
+        balanceGlowAnim.setValue(0);
         
+        // Start from old value
+        animatedNetBalance.setValue(oldBalance);
+        setDisplayedNetBalance(oldBalance);
+        prevBalanceRef.current = newBalance;
+        
+        // Start glow animation
+        Animated.sequence([
+          Animated.timing(balanceGlowAnim, {
+            toValue: 1,
+            duration: 200,
+            useNativeDriver: false,
+          }),
+          Animated.timing(balanceGlowAnim, {
+            toValue: 1,
+            duration: 1100,
+            useNativeDriver: false,
+          }),
+          Animated.timing(balanceGlowAnim, {
+            toValue: 0,
+            duration: 300,
+            easing: Easing.out(Easing.cubic),
+            useNativeDriver: false,
+          }),
+        ]).start(() => {
+          setIsAnimatingBalance(false);
+        });
+        
+        // Animate number
         Animated.timing(animatedNetBalance, {
-          toValue: newNetBalance,
+          toValue: newBalance,
           duration: 1500,
           easing: Easing.out(Easing.cubic),
           useNativeDriver: false,
         }).start();
         
-        // Update displayed value via listener
+        // Update displayed value during animation
+        const listenerId = animatedNetBalance.addListener(({ value }) => {
+          setDisplayedNetBalance(Math.round(value * 100) / 100);
+        });
+        
+        // Cleanup
+        setTimeout(() => {
+          animatedNetBalance.removeListener(listenerId);
+          setDisplayedNetBalance(newBalance);
+          isNumberAnimatingRef.current = false;
+          balanceBeforeActionRef.current = null;
+        }, 1600);
+      } else {
+        console.log('Animation skipped - oldBalance:', oldBalance, 'newBalance:', newBalance, 'isAnimating:', isNumberAnimatingRef.current);
+        balanceBeforeActionRef.current = null;
+      }
+    }, 1000);
+  }, []);
+  
+  // Keep ref updated with latest balance (no auto-animation)
+  useEffect(() => {
+    if (balances) {
+      const newBalance = balances.netBalance;
+      currentBalanceRef.current = newBalance;
+      
+      // Update display only if not animating and not in settle animation
+      if (balanceBeforeSettleRef.current === null && !isNumberAnimatingRef.current) {
+        prevBalanceRef.current = newBalance;
+        setDisplayedNetBalance(newBalance);
+        animatedNetBalance.setValue(newBalance);
+      }
+    }
+  }, [balances?.netBalance]);
+
+  // Callback for when settle completes - triggers balance animation then promo
+  const handleSettleSuccess = useCallback((settledAmount: number): void => {
+    setLastSettledAmount(settledAmount);
+    
+    // Get the balance from before settle modal opened
+    const oldBalance = balanceBeforeSettleRef.current ?? displayedNetBalance;
+    
+    // Wait a moment for Convex to sync, then animate
+    setTimeout(() => {
+      // Use ref to get the LATEST balance after Convex synced
+      const newBalance = currentBalanceRef.current;
+      
+      console.log('Animating balance:', oldBalance, '->', newBalance);
+      
+      // Only animate if balance actually changed
+      if (oldBalance !== newBalance) {
+        // Start visual effects
+        setIsAnimatingBalance(true);
+        
+        // Animate from old balance to new balance
+        animatedNetBalance.setValue(oldBalance);
+        setDisplayedNetBalance(oldBalance); // Start from old value
+        
+        // Glow animation (pulses during animation)
+        balanceGlowAnim.setValue(0);
+        Animated.sequence([
+          Animated.timing(balanceGlowAnim, {
+            toValue: 1,
+            duration: 300,
+            useNativeDriver: false,
+          }),
+          Animated.timing(balanceGlowAnim, {
+            toValue: 0,
+            duration: 1200,
+            easing: Easing.out(Easing.cubic),
+            useNativeDriver: false,
+          }),
+        ]).start();
+        
+        // Number value animation
+        Animated.timing(animatedNetBalance, {
+          toValue: newBalance,
+          duration: 1500,
+          easing: Easing.out(Easing.cubic),
+          useNativeDriver: false,
+        }).start(() => {
+          // Animation done - show promo after small delay
+          setIsAnimatingBalance(false);
+          balanceBeforeSettleRef.current = null;
+          setDisplayedNetBalance(newBalance);
+          
+          setTimeout(() => {
+            setShowRytBankPromo(true);
+          }, 500);
+        });
+        
+        // Update displayed value during animation
         const listenerId = animatedNetBalance.addListener(({ value }) => {
           setDisplayedNetBalance(Math.round(value * 100) / 100);
         });
@@ -201,24 +344,16 @@ export default function HomeScreen(): React.ReactElement {
         // Cleanup listener after animation
         setTimeout(() => {
           animatedNetBalance.removeListener(listenerId);
-          setDisplayedNetBalance(newNetBalance);
         }, 1600);
-        
-        prevNetBalanceRef.current = newNetBalance;
-      } else if (!pendingAnimationRef.current) {
-        // Normal update (no pending animation) - just set the value instantly
-        setDisplayedNetBalance(newNetBalance);
-        animatedNetBalance.setValue(newNetBalance);
-        prevNetBalanceRef.current = newNetBalance;
+      } else {
+        // Balance didn't change, just show promo
+        balanceBeforeSettleRef.current = null;
+        setTimeout(() => {
+          setShowRytBankPromo(true);
+        }, 500);
       }
-      // If pendingAnimationRef.current is true but balance hasn't changed yet, do nothing and wait
-    }
-  }, [balances?.netBalance]);
-
-  // Callback for when settle completes - triggers animation on next balance change
-  const handleSettleSuccess = useCallback((): void => {
-    pendingAnimationRef.current = true;
-  }, []);
+    }, 1000); // Delay to let Convex sync
+  }, [displayedNetBalance]);
 
   const navigateToActivity = (): void => {
     router.push('/(tabs)/activity');
@@ -226,6 +361,7 @@ export default function HomeScreen(): React.ReactElement {
 
   const openExpenseDetail = (activityId: string, activityType: string): void => {
     if (activityType === 'expense') {
+      captureBalanceBeforeAction();
       setSelectedExpenseId(activityId);
       setShowExpenseDetail(true);
     }
@@ -256,8 +392,7 @@ export default function HomeScreen(): React.ReactElement {
               });
 
               if (result.success) {
-                Alert.alert('Deleted', 'Expense has been deleted and balances updated.');
-                closeExpenseDetail();
+                setShowDeleteSuccess(true);
               } else {
                 Alert.alert('Error', result.error || 'Failed to delete expense');
               }
@@ -279,6 +414,7 @@ export default function HomeScreen(): React.ReactElement {
   };
 
   const handleEditSuccess = (): void => {
+    triggerBalanceAnimation();
     setShowEditModal(false);
     setSelectedExpenseId(null);
   };
@@ -313,16 +449,42 @@ export default function HomeScreen(): React.ReactElement {
           {isInitialLoading ? (
             <Shimmer style={styles.shimmerLarge} />
           ) : (
-            <Text style={[
-              styles.balanceAmount,
-              displayedNetBalance > 0 && styles.balancePositive,
-              displayedNetBalance < 0 && styles.balanceNegative,
-            ]}>
-              {displayedNetBalance !== 0 
-                ? (displayedNetBalance > 0 ? '+' : '') 
-                : ''}
-              RM {formatMoney(displayedNetBalance)}
-            </Text>
+            <View style={styles.balanceAnimationContainer}>
+              {/* Glow/blur layer behind the text */}
+              {isAnimatingBalance && (
+                <Animated.Text 
+                  style={[
+                    styles.balanceAmount,
+                    styles.balanceGlow,
+                    displayedNetBalance >= 0 ? styles.balanceGlowPositive : styles.balanceGlowNegative,
+                    {
+                      opacity: balanceGlowAnim.interpolate({
+                        inputRange: [0, 1],
+                        outputRange: [0, 1],
+                      }),
+                    },
+                  ]}
+                >
+                  {displayedNetBalance !== 0 
+                    ? (displayedNetBalance > 0 ? '+' : '') 
+                    : ''}
+                  RM {formatMoney(displayedNetBalance)}
+                </Animated.Text>
+              )}
+              {/* Main text */}
+              <Text 
+                style={[
+                  styles.balanceAmount,
+                  displayedNetBalance > 0 && styles.balancePositive,
+                  displayedNetBalance < 0 && styles.balanceNegative,
+                ]}
+              >
+                {displayedNetBalance !== 0 
+                  ? (displayedNetBalance > 0 ? '+' : '') 
+                  : ''}
+                RM {formatMoney(displayedNetBalance)}
+              </Text>
+            </View>
           )}
           <View style={styles.balanceRow}>
             <View style={styles.balanceItem}>
@@ -356,7 +518,10 @@ export default function HomeScreen(): React.ReactElement {
             <TouchableOpacity 
               style={styles.actionButton} 
               activeOpacity={0.7}
-              onPress={() => setShowAddExpense(true)}
+              onPress={() => {
+                captureBalanceBeforeAction();
+                setShowAddExpense(true);
+              }}
             >
               <View style={styles.actionIconContainer}>
                 <PlusCircle color={COLORS.primary} size={28} />
@@ -376,7 +541,12 @@ export default function HomeScreen(): React.ReactElement {
             <TouchableOpacity 
               style={[styles.actionButton, !hasDebts && styles.actionButtonDisabled]} 
               activeOpacity={0.7}
-              onPress={() => hasDebts && setShowSettleUp(true)}
+              onPress={() => {
+                if (hasDebts) {
+                  balanceBeforeSettleRef.current = displayedNetBalance;
+                  setShowSettleUp(true);
+                }
+              }}
             >
               <View style={styles.actionIconContainer}>
                 <CreditCard color={hasDebts ? COLORS.primary : COLORS.textMuted} size={28} />
@@ -503,7 +673,8 @@ export default function HomeScreen(): React.ReactElement {
         visible={showAddExpense}
         onClose={() => setShowAddExpense(false)}
         onSuccess={() => {
-          // Dashboard will auto-refresh via Convex reactivity
+          // Trigger balance animation after user dismisses success dialog
+          triggerBalanceAnimation();
         }}
       />
       
@@ -519,6 +690,24 @@ export default function HomeScreen(): React.ReactElement {
         visible={showSettleUp}
         onClose={() => setShowSettleUp(false)}
         onSuccess={handleSettleSuccess}
+      />
+
+      <RytBankPromoModal
+        visible={showRytBankPromo}
+        settledAmount={lastSettledAmount}
+        onClose={() => setShowRytBankPromo(false)}
+      />
+
+      {/* Delete Success Modal */}
+      <SuccessModal
+        visible={showDeleteSuccess}
+        title="Expense Removed"
+        message="The expense has been deleted and all balances have been updated."
+        onDismiss={() => {
+          setShowDeleteSuccess(false);
+          triggerBalanceAnimation();
+          closeExpenseDetail();
+        }}
       />
 
       {/* Expense Detail Modal */}
@@ -568,17 +757,22 @@ export default function HomeScreen(): React.ReactElement {
                   <Calendar color={COLORS.textSecondary} size={16} />
                   <Text style={styles.metaText}>{formatFullDate(expense.createdAt)}</Text>
                 </View>
-                <View style={styles.metaItem}>
-                  <User color={COLORS.textSecondary} size={16} />
-                  <Text style={styles.metaText}>
-                    Paid by {expense.payerId === userId ? 'You' : (expense.payerUsername || expense.payerName || 'Unknown')}
-                  </Text>
-                </View>
               </View>
 
               {/* Items */}
               <View style={styles.expenseSection}>
-                <Text style={styles.expenseSectionTitle}>Items & Splits</Text>
+                <View style={styles.sectionHeaderRow}>
+                  <Text style={styles.expenseSectionTitle}>Items & Splits</Text>
+                  <View style={styles.paidByBadge}>
+                    <Text style={styles.paidByLabel}>Paid by</Text>
+                    <View style={styles.paidByChip}>
+                      <User color={COLORS.textPrimary} size={12} />
+                      <Text style={styles.paidByName}>
+                        {expense.payerId === userId ? 'You' : (expense.payerUsername || expense.payerName || 'Unknown')}
+                      </Text>
+                    </View>
+                  </View>
+                </View>
                 {expense.items.map((item, index) => (
                   <View key={index} style={styles.itemCard}>
                     <View style={styles.itemHeader}>
@@ -721,11 +915,32 @@ const styles = StyleSheet.create({
     color: COLORS.textSecondary,
     marginBottom: 8,
   },
+  balanceAnimationContainer: {
+    position: 'relative',
+    marginBottom: 20,
+  },
   balanceAmount: {
     fontSize: 36,
     fontWeight: 'bold',
     color: COLORS.textPrimary,
-    marginBottom: 20,
+  },
+  balanceGlow: {
+    position: 'absolute',
+    top: 0,
+    left: 0,
+    right: 0,
+  },
+  balanceGlowPositive: {
+    textShadowColor: COLORS.success,
+    textShadowOffset: { width: 0, height: 0 },
+    textShadowRadius: 30,
+    color: COLORS.success,
+  },
+  balanceGlowNegative: {
+    textShadowColor: COLORS.error,
+    textShadowOffset: { width: 0, height: 0 },
+    textShadowRadius: 30,
+    color: COLORS.error,
   },
   balancePositive: {
     color: COLORS.success,
@@ -972,6 +1187,7 @@ const styles = StyleSheet.create({
   metaItem: {
     flexDirection: 'row',
     alignItems: 'center',
+    marginBottom: 8,
   },
   metaText: {
     fontSize: 14,
@@ -985,9 +1201,37 @@ const styles = StyleSheet.create({
     fontSize: 13,
     fontWeight: '600',
     color: COLORS.textSecondary,
-    marginBottom: 10,
     textTransform: 'uppercase',
     letterSpacing: 0.5,
+  },
+  sectionHeaderRow: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    alignItems: 'center',
+    marginBottom: 10,
+  },
+  paidByBadge: {
+    flexDirection: 'row',
+    alignItems: 'center',
+  },
+  paidByLabel: {
+    fontSize: 12,
+    color: COLORS.textSecondary,
+    marginRight: 6,
+  },
+  paidByChip: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    backgroundColor: COLORS.primary,
+    paddingHorizontal: 10,
+    paddingVertical: 5,
+    borderRadius: 12,
+  },
+  paidByName: {
+    fontSize: 12,
+    fontWeight: '600',
+    color: COLORS.textPrimary,
+    marginLeft: 4,
   },
   itemCard: {
     backgroundColor: COLORS.card,

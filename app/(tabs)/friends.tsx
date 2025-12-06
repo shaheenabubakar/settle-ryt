@@ -46,6 +46,21 @@ export default function FriendsScreen(): React.ReactElement {
     userId ? { userId: userId as Id<'users'> } : 'skip'
   );
 
+  // Fetch dashboard to get balance info per person
+  const dashboard = useQuery(
+    api.queries.getDashboard,
+    userId ? { userId: userId as Id<'users'> } : 'skip'
+  );
+
+  // Helper to get balance for a friend
+  const getBalanceForFriend = (friendUserId: string): number => {
+    if (!dashboard?.balances?.byPerson) return 0;
+    const personBalance = dashboard.balances.byPerson.find(
+      (p) => p.userId === friendUserId
+    );
+    return personBalance?.amount || 0;
+  };
+
   // Mutations
   const addFriend = useMutation(api.mutations.addFriend);
   const acceptFriend = useMutation(api.mutations.acceptFriend);
@@ -186,19 +201,52 @@ export default function FriendsScreen(): React.ReactElement {
             <Text style={styles.sectionTitle}>Your Friends ({friends?.length || 0})</Text>
             {friends && friends.length > 0 ? (
               <View style={styles.listContainer}>
-                {friends.map((friend) => (
-                  <View key={friend.friendshipId} style={styles.friendItem}>
-                    <View style={styles.friendAvatar}>
-                      <User color={COLORS.textPrimary} size={20} />
+                {[...friends]
+                  .sort((a, b) => {
+                    // Sort by balance: non-zero balances first, settled (0) last
+                    const balanceA = getBalanceForFriend(a.userId);
+                    const balanceB = getBalanceForFriend(b.userId);
+                    // If one is settled (0) and other is not, settled goes last
+                    if (balanceA === 0 && balanceB !== 0) return 1;
+                    if (balanceA !== 0 && balanceB === 0) return -1;
+                    // Otherwise sort by absolute balance (higher amounts first)
+                    return Math.abs(balanceB) - Math.abs(balanceA);
+                  })
+                  .map((friend) => {
+                  const balance = getBalanceForFriend(friend.userId);
+                  return (
+                    <View key={friend.friendshipId} style={styles.friendItem}>
+                      <View style={styles.friendAvatar}>
+                        <User color={COLORS.textPrimary} size={20} />
+                      </View>
+                      <View style={styles.friendInfo}>
+                        <Text style={styles.friendName}>{friend.username}</Text>
+                        {friend.name && (
+                          <Text style={styles.friendSubtext}>{friend.name}</Text>
+                        )}
+                      </View>
+                      <View style={styles.balanceContainer}>
+                        {balance === 0 ? (
+                          <Text style={styles.settledText}>Settled</Text>
+                        ) : balance > 0 ? (
+                          <>
+                            <Text style={styles.balanceLabel}>owes you</Text>
+                            <Text style={styles.balancePositive}>
+                              RM {balance.toFixed(2)}
+                            </Text>
+                          </>
+                        ) : (
+                          <>
+                            <Text style={styles.balanceLabel}>you owe</Text>
+                            <Text style={styles.balanceNegative}>
+                              RM {Math.abs(balance).toFixed(2)}
+                            </Text>
+                          </>
+                        )}
+                      </View>
                     </View>
-                    <View style={styles.friendInfo}>
-                      <Text style={styles.friendName}>{friend.username}</Text>
-                      {friend.name && (
-                        <Text style={styles.friendSubtext}>{friend.name}</Text>
-                      )}
-                    </View>
-                  </View>
-                ))}
+                  );
+                })}
               </View>
             ) : (
               <View style={styles.emptyState}>
@@ -395,6 +443,29 @@ const styles = StyleSheet.create({
   },
   friendSubtext: {
     fontSize: 13,
+    color: COLORS.textSecondary,
+  },
+  balanceContainer: {
+    alignItems: 'flex-end',
+  },
+  balanceLabel: {
+    fontSize: 11,
+    color: COLORS.textMuted,
+    marginBottom: 2,
+  },
+  balancePositive: {
+    fontSize: 15,
+    fontWeight: 'bold',
+    color: COLORS.primary,
+  },
+  balanceNegative: {
+    fontSize: 15,
+    fontWeight: 'bold',
+    color: COLORS.error,
+  },
+  settledText: {
+    fontSize: 14,
+    fontStyle: 'italic',
     color: COLORS.textSecondary,
   },
   emptyState: {

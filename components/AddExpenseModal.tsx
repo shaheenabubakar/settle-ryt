@@ -27,6 +27,7 @@ import {
   AlertTriangle,
 } from 'lucide-react-native';
 import { useAuth } from '../context/AuthContext';
+import { SuccessModal } from './SuccessModal';
 import { useQuery, useMutation } from 'convex/react';
 import { api } from '../convex/_generated/api';
 import { Id } from '../convex/_generated/dataModel';
@@ -93,8 +94,10 @@ export const AddExpenseModal: React.FC<AddExpenseModalProps> = ({
   const [showSearchResults, setShowSearchResults] = useState(true);
   const [selectedParticipants, setSelectedParticipants] = useState<SelectedParticipant[]>([]);
   const [payerId, setPayerId] = useState<string | null>(null);
+  const [itemMode, setItemMode] = useState<'single' | 'multiple'>('single');
   const [items, setItems] = useState<ExpenseItem[]>([]);
   const [isSubmitting, setIsSubmitting] = useState(false);
+  const [showSuccessModal, setShowSuccessModal] = useState(false);
 
   // Use refs to store split results to avoid re-render loops
   const splitResultsRef = useRef<Record<string, SplitResult>>({});
@@ -134,6 +137,7 @@ export const AddExpenseModal: React.FC<AddExpenseModalProps> = ({
       setShowSearchResults(true);
       setSelectedParticipants([]);
       setPayerId(userId || null);
+      setItemMode('single');
       setItems([{
         id: generateId(),
         name: '',
@@ -169,12 +173,18 @@ export const AddExpenseModal: React.FC<AddExpenseModalProps> = ({
       availableGroups = availableGroups.filter(g => 
         g.name.toLowerCase().includes(query)
       );
+      
+      // Show more results when actively searching
+      return { 
+        users: availableUsers.slice(0, 5), 
+        groups: availableGroups.slice(0, 5) 
+      };
     }
     
-    // Limit results
+    // Limit results when not searching (default view)
     return { 
-      users: availableUsers.slice(0, 5), 
-      groups: availableGroups.slice(0, 5) 
+      users: availableUsers.slice(0, 3), 
+      groups: availableGroups.slice(0, 2) 
     };
   }, [searchQuery, dashboard?.groups, friends, selectedParticipants]);
 
@@ -240,6 +250,10 @@ export const AddExpenseModal: React.FC<AddExpenseModalProps> = ({
 
   // Add item
   const addItem = (): void => {
+    // If this is the first time adding (going from 1 to 2 items),
+    // keep the first item expanded so user can name it
+    const isFirstAdd = items.length === 1;
+    
     const newItem: ExpenseItem = {
       id: generateId(),
       name: '',
@@ -247,11 +261,20 @@ export const AddExpenseModal: React.FC<AddExpenseModalProps> = ({
       splitResult: null,
       expanded: true,
     };
-    // Collapse other items
-    setItems(prev => [
-      ...prev.map(i => ({ ...i, expanded: false })),
-      newItem,
-    ]);
+    
+    if (isFirstAdd) {
+      // Keep first item expanded too so user can name it
+      setItems(prev => [
+        ...prev.map(i => ({ ...i, expanded: true })),
+        newItem,
+      ]);
+    } else {
+      // Collapse other items, expand new one
+      setItems(prev => [
+        ...prev.map(i => ({ ...i, expanded: false })),
+        newItem,
+      ]);
+    }
   };
 
   // Remove item
@@ -357,18 +380,18 @@ export const AddExpenseModal: React.FC<AddExpenseModalProps> = ({
     }
     for (const item of items) {
       const itemAmount = parseFloat(item.amount) || 0;
-      if (items.length > 1 && !item.name.trim()) {
+      if (itemMode === 'multiple' && !item.name.trim()) {
         return 'Please name all subitems';
       }
       if (itemAmount <= 0) {
-        return items.length > 1 ? 'All subitems need an amount' : 'Please enter the item amount';
+        return itemMode === 'multiple' ? 'All subitems need an amount' : 'Please enter the item amount';
       }
       if (itemAmount > totalAmount) {
         return `Subitem "${item.name || 'item'}" amount cannot exceed total`;
       }
       const result = splitResultsRef.current[item.id] || item.splitResult;
       if (!result?.isValid) {
-        return items.length > 1 ? `Please complete the split for "${item.name || 'item'}"` : 'Please complete the split';
+        return itemMode === 'multiple' ? `Please complete the split for "${item.name || 'item'}"` : 'Please complete the split';
       }
     }
     if (!totalsMatch) {
@@ -378,9 +401,6 @@ export const AddExpenseModal: React.FC<AddExpenseModalProps> = ({
   };
 
   // Handle submit
-  // Create group mutation for when individual users are selected
-  const createGroup = useMutation(api.mutations.createGroup);
-
   const handleSubmit = async (): Promise<void> => {
     const error = validateForm();
     if (error) {
@@ -393,36 +413,9 @@ export const AddExpenseModal: React.FC<AddExpenseModalProps> = ({
     setIsSubmitting(true);
 
     try {
-      let groupId: Id<'groups'>;
-
-      // Check if a group is selected or if we need to create one
+      // Check if a group is selected
       const selectedGroup = selectedParticipants.find(p => p.type === 'group');
       
-      if (selectedGroup) {
-        groupId = selectedGroup.id as Id<'groups'>;
-      } else {
-        // Create a new group for the selected users
-        const selectedUserIds = selectedParticipants
-          .filter(p => p.type === 'user')
-          .map(p => p.id as Id<'users'>);
-        
-        // Generate a group name from the expense description
-        const groupName = description.trim() || 'Expense Group';
-        
-        const groupResult = await createGroup({
-          userId: userId as Id<'users'>,
-          name: groupName,
-          members: selectedUserIds,
-        });
-
-        if (!groupResult.success || !groupResult.groupId) {
-          Alert.alert('Error', groupResult.error || 'Failed to create group');
-          return;
-        }
-
-        groupId = groupResult.groupId;
-      }
-
       // Build items for mutation
       const expenseItems = items.map(item => {
         const result = splitResultsRef.current[item.id] || item.splitResult;
@@ -438,17 +431,23 @@ export const AddExpenseModal: React.FC<AddExpenseModalProps> = ({
         };
       });
 
-      const result = await addExpense({
-        userId: payerId as Id<'users'>,
-        groupId: groupId,
-        description: description.trim(),
-        items: expenseItems,
-      });
+      // If a group is selected, use groupId; otherwise use participantIds
+      const result = selectedGroup 
+        ? await addExpense({
+            userId: payerId as Id<'users'>,
+            groupId: selectedGroup.id as Id<'groups'>,
+            description: description.trim(),
+            items: expenseItems,
+          })
+        : await addExpense({
+            userId: payerId as Id<'users'>,
+            participantIds: allParticipants.map(p => p.userId as Id<'users'>),
+            description: description.trim(),
+            items: expenseItems,
+          });
 
       if (result.success) {
-        Alert.alert('Success', 'Expense added!');
-        onSuccess?.();
-        onClose();
+        setShowSuccessModal(true);
       } else {
         Alert.alert('Error', result.error || 'Failed to add expense');
       }
@@ -463,11 +462,11 @@ export const AddExpenseModal: React.FC<AddExpenseModalProps> = ({
   const hasParticipants = selectedParticipants.length > 0;
   const hasAmount = totalAmount > 0;
   const hasPayer = payerId !== null;
-  const isSingleItem = items.length === 1;
+  const isSingleItem = itemMode === 'single';
 
-  // For single item, auto-set its amount to total
+  // For single item mode, auto-set its amount to total
   useEffect(() => {
-    if (isSingleItem && totalAmount > 0) {
+    if (isSingleItem && totalAmount > 0 && items.length > 0) {
       const item = items[0];
       if (item && item.amount !== totalAmountStr) {
         setItems(prev => prev.map((i, idx) => 
@@ -680,13 +679,74 @@ export const AddExpenseModal: React.FC<AddExpenseModalProps> = ({
                 </View>
               </View>
 
+              {/* Item Mode Toggle - only show after amount entered */}
+              {hasAmount && (
+                <View style={styles.itemModeSection}>
+                  <Text style={styles.sectionLabel}>Split type</Text>
+                  <View style={styles.itemModeToggle}>
+                    <TouchableOpacity
+                      style={[
+                        styles.itemModeButton,
+                        itemMode === 'single' && styles.itemModeButtonActive,
+                      ]}
+                      onPress={() => {
+                        setItemMode('single');
+                        // Reset to single item
+                        setItems([{
+                          id: generateId(),
+                          name: '',
+                          amount: totalAmountStr,
+                          splitResult: null,
+                          expanded: true,
+                        }]);
+                        splitResultsRef.current = {};
+                      }}
+                    >
+                      <Text style={[
+                        styles.itemModeButtonText,
+                        itemMode === 'single' && styles.itemModeButtonTextActive,
+                      ]}>
+                        Single item
+                      </Text>
+                    </TouchableOpacity>
+                    <TouchableOpacity
+                      style={[
+                        styles.itemModeButton,
+                        itemMode === 'multiple' && styles.itemModeButtonActive,
+                      ]}
+                      onPress={() => {
+                        setItemMode('multiple');
+                        // Start with one item for multiple mode
+                        if (items.length === 1 && !items[0].name) {
+                          setItems([{
+                            id: generateId(),
+                            name: '',
+                            amount: '',
+                            splitResult: null,
+                            expanded: true,
+                          }]);
+                          splitResultsRef.current = {};
+                        }
+                      }}
+                    >
+                      <Text style={[
+                        styles.itemModeButtonText,
+                        itemMode === 'multiple' && styles.itemModeButtonTextActive,
+                      ]}>
+                        Multiple items
+                      </Text>
+                    </TouchableOpacity>
+                  </View>
+                </View>
+              )}
+
               {/* Split Section - only show after amount entered */}
               {hasAmount && (
                 <View style={styles.section}>
                   <View style={styles.sectionHeader}>
                     <Text style={styles.sectionLabel}>Each person's share</Text>
-                    {items.length > 1 && (
-                      <Text style={styles.itemsCount}>{items.length} subitems</Text>
+                    {itemMode === 'multiple' && items.length > 0 && (
+                      <Text style={styles.itemsCount}>{items.length} subitem{items.length !== 1 ? 's' : ''}</Text>
                     )}
                   </View>
 
@@ -694,12 +754,13 @@ export const AddExpenseModal: React.FC<AddExpenseModalProps> = ({
                   {items.map((item, index) => {
                     const itemAmount = parseFloat(item.amount) || 0;
                     const hasValidSplit = splitResultsRef.current[item.id]?.isValid || item.splitResult?.isValid;
-                    const itemExceedsTotal = items.length > 1 && itemAmount > totalAmount;
+                    const itemExceedsTotal = itemMode === 'multiple' && itemAmount > totalAmount;
+                    const isMultiple = itemMode === 'multiple';
 
                     return (
                       <View key={item.id} style={styles.itemCard}>
-                        {/* Item Header - only show if multiple items */}
-                        {items.length > 1 && (
+                        {/* Item Header - only show if multiple items mode */}
+                        {isMultiple && (
                           <TouchableOpacity
                             style={styles.itemHeader}
                             onPress={() => toggleItemExpansion(item.id)}
@@ -712,19 +773,9 @@ export const AddExpenseModal: React.FC<AddExpenseModalProps> = ({
                             </View>
                             <View style={styles.itemHeaderRight}>
                               {itemAmount > 0 && (
-                                <Text style={[styles.itemHeaderAmount, itemExceedsTotal && styles.itemHeaderAmountError]}>
+                                <Text style={styles.itemHeaderAmount}>
                                   RM {formatMoney(itemAmount)}
                                 </Text>
-                              )}
-                              {hasValidSplit && !itemExceedsTotal && (
-                                <View style={styles.validBadge}>
-                                  <Check color={COLORS.primary} size={10} />
-                                </View>
-                              )}
-                              {itemExceedsTotal && (
-                                <View style={styles.warningBadge}>
-                                  <AlertTriangle color={COLORS.warning} size={12} />
-                                </View>
                               )}
                               {items.length > 1 && (
                                 <TouchableOpacity
@@ -743,11 +794,11 @@ export const AddExpenseModal: React.FC<AddExpenseModalProps> = ({
                           </TouchableOpacity>
                         )}
 
-                        {/* Item Content - always show for single item */}
-                        {(item.expanded || isSingleItem) && (
-                          <View style={[styles.itemContent, items.length > 1 && styles.itemContentBordered]}>
-                            {/* Item name and amount - only for multiple items */}
-                            {items.length > 1 && (
+                        {/* Item Content - always show for single item mode */}
+                        {(item.expanded || !isMultiple) && (
+                          <View style={[styles.itemContent, isMultiple && styles.itemContentBordered]}>
+                            {/* Item name and amount - only for multiple items mode */}
+                            {isMultiple && (
                               <View style={styles.itemInputRow}>
                                 <View style={styles.itemNameInputContainer}>
                                   <Text style={styles.inputLabel}>Name</Text>
@@ -778,11 +829,11 @@ export const AddExpenseModal: React.FC<AddExpenseModalProps> = ({
                             )}
 
                             {/* Split Logic */}
-                            {(isSingleItem ? totalAmount : itemAmount) > 0 && (
-                              <View style={items.length > 1 ? styles.itemSplitSection : undefined}>
+                            {(!isMultiple ? totalAmount : itemAmount) > 0 && (
+                              <View style={isMultiple ? styles.itemSplitSection : undefined}>
                                 <SplitLogic
                                   key={`split-${item.id}-${allParticipants.length}`}
-                                  amount={isSingleItem ? totalAmount : itemAmount}
+                                  amount={!isMultiple ? totalAmount : itemAmount}
                                   users={allParticipants}
                                   currentUserId={userId || undefined}
                                   onChange={(result) => handleSplitChange(item.id, result)}
@@ -790,8 +841,8 @@ export const AddExpenseModal: React.FC<AddExpenseModalProps> = ({
                               </View>
                             )}
 
-                            {/* Done button for multi-item */}
-                            {items.length > 1 && hasValidSplit && (
+                            {/* Done button for multi-item mode */}
+                            {isMultiple && hasValidSplit && (
                               <TouchableOpacity
                                 style={styles.doneButton}
                                 onPress={() => closeItem(item.id)}
@@ -806,8 +857,16 @@ export const AddExpenseModal: React.FC<AddExpenseModalProps> = ({
                     );
                   })}
 
-                  {/* Totals Mismatch Warning - subtle but clear */}
-                  {items.length > 1 && !totalsMatch && (
+                  {/* Add Item Button - only for multiple items mode */}
+                  {itemMode === 'multiple' && (
+                    <TouchableOpacity style={styles.addItemButton} onPress={addItem}>
+                      <Plus color={COLORS.primary} size={18} />
+                      <Text style={styles.addItemText}>Add another subitem</Text>
+                    </TouchableOpacity>
+                  )}
+
+                  {/* Overall Expense Validation Status */}
+                  {itemMode === 'multiple' && !totalsMatch && (
                     <View style={styles.totalsMismatchContainer}>
                       <AlertTriangle color={COLORS.warning} size={16} />
                       <View style={styles.totalsMismatchInfo}>
@@ -823,18 +882,23 @@ export const AddExpenseModal: React.FC<AddExpenseModalProps> = ({
                     </View>
                   )}
 
-                  {/* Add Item Button */}
-                  <TouchableOpacity style={styles.addItemButton} onPress={addItem}>
-                    <Plus color={COLORS.primary} size={18} />
-                    <Text style={styles.addItemText}>Add another subitem</Text>
-                  </TouchableOpacity>
-
-                  {/* Items Total - show success state when matched */}
-                  {items.length > 1 && totalsMatch && (
+                  {/* Success state for expense - show when totals match AND all splits valid */}
+                  {totalsMatch && allSplitsValid && totalAmount > 0 && (
                     <View style={styles.itemsTotalContainerSuccess}>
                       <Check color={COLORS.primary} size={16} />
                       <Text style={styles.itemsTotalAmountSuccess}>
-                        Subitems total RM {formatMoney(itemsTotal)} ✓
+                        {itemMode === 'multiple' 
+                          ? `All subitems allocated • RM ${formatMoney(totalAmount)}`
+                          : `Split complete • RM ${formatMoney(totalAmount)}`}
+                      </Text>
+                    </View>
+                  )}
+
+                  {/* Partial state - totals match but splits not complete */}
+                  {totalsMatch && !allSplitsValid && totalAmount > 0 && (
+                    <View style={styles.totalsPendingContainer}>
+                      <Text style={styles.totalsPendingText}>
+                        Complete the split to continue
                       </Text>
                     </View>
                   )}
@@ -846,6 +910,18 @@ export const AddExpenseModal: React.FC<AddExpenseModalProps> = ({
           <View style={styles.bottomPadding} />
         </ScrollView>
       </KeyboardAvoidingView>
+
+      {/* Success Modal */}
+      <SuccessModal
+        visible={showSuccessModal}
+        title="All Done!"
+        message="Your expense has been recorded and everyone's balance has been updated."
+        onDismiss={() => {
+          setShowSuccessModal(false);
+          onSuccess?.();
+          onClose();
+        }}
+      />
     </Modal>
   );
 };
@@ -906,6 +982,34 @@ const styles = StyleSheet.create({
     marginBottom: 8,
     textTransform: 'uppercase',
     letterSpacing: 0.5,
+  },
+  itemModeSection: {
+    marginBottom: 20,
+  },
+  itemModeToggle: {
+    flexDirection: 'row',
+    backgroundColor: COLORS.cardElevated,
+    borderRadius: 10,
+    padding: 4,
+  },
+  itemModeButton: {
+    flex: 1,
+    paddingVertical: 10,
+    paddingHorizontal: 16,
+    borderRadius: 8,
+    alignItems: 'center',
+  },
+  itemModeButtonActive: {
+    backgroundColor: COLORS.primary,
+  },
+  itemModeButtonText: {
+    fontSize: 14,
+    fontWeight: '500',
+    color: COLORS.textSecondary,
+  },
+  itemModeButtonTextActive: {
+    color: COLORS.textPrimary,
+    fontWeight: '600',
   },
   itemsCount: {
     fontSize: 12,
@@ -1073,6 +1177,7 @@ const styles = StyleSheet.create({
     fontWeight: '600',
     color: COLORS.textSecondary,
     marginRight: 8,
+    minWidth: 32,
   },
   amountInput: {
     flex: 1,
@@ -1190,6 +1295,7 @@ const styles = StyleSheet.create({
     fontSize: 14,
     color: COLORS.textSecondary,
     marginRight: 4,
+    minWidth: 26,
   },
   itemAmountInput: {
     flex: 1,
@@ -1213,6 +1319,7 @@ const styles = StyleSheet.create({
     fontWeight: '600',
     color: COLORS.primary,
     marginLeft: 6,
+    minWidth: 40,
   },
   totalsMismatchContainer: {
     flexDirection: 'row',
@@ -1248,12 +1355,14 @@ const styles = StyleSheet.create({
     borderWidth: 1,
     borderColor: 'rgba(0, 168, 107, 0.3)',
     borderStyle: 'dashed',
+    width: '100%',
   },
   addItemText: {
     fontSize: 14,
     fontWeight: '600',
     color: COLORS.primary,
     marginLeft: 8,
+    textAlign: 'center',
   },
   itemsTotalContainerSuccess: {
     flexDirection: 'row',
@@ -1269,6 +1378,16 @@ const styles = StyleSheet.create({
     fontWeight: '600',
     color: COLORS.primary,
     marginLeft: 6,
+  },
+  totalsPendingContainer: {
+    alignItems: 'center',
+    padding: 10,
+    marginTop: 10,
+  },
+  totalsPendingText: {
+    fontSize: 13,
+    color: COLORS.textMuted,
+    fontStyle: 'italic',
   },
   bottomPadding: {
     height: 40,

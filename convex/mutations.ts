@@ -257,7 +257,8 @@ export const archiveGroup = mutation({
 export const addExpense = mutation({
   args: {
     userId: v.id('users'),
-    groupId: v.id('groups'),
+    groupId: v.optional(v.id('groups')), // Optional - for group expenses
+    participantIds: v.optional(v.array(v.id('users'))), // Optional - for individual expenses
     description: v.string(),
     items: v.array(
       v.object({
@@ -274,21 +275,39 @@ export const addExpense = mutation({
     category: v.optional(v.string()),
   },
   handler: async (ctx, args): Promise<{ success: boolean; expenseId?: Id<'expenses'>; error?: string }> => {
-    const { userId, groupId, description, items, category } = args;
+    const { userId, groupId, participantIds, description, items, category } = args;
 
-    // Validate group exists and user is a member
-    const group = await ctx.db.get(groupId);
-
-    if (!group) {
-      return { success: false, error: 'Group not found' };
+    // Must have either groupId or participantIds
+    if (!groupId && (!participantIds || participantIds.length === 0)) {
+      return { success: false, error: 'Must specify a group or participants' };
     }
 
-    if (!group.members.includes(userId)) {
-      return { success: false, error: 'Not a member of this group' };
-    }
+    // Determine valid members for this expense
+    let validMembers: Id<'users'>[];
 
-    if (group.archived) {
-      return { success: false, error: 'Cannot add expenses to archived group' };
+    if (groupId) {
+      // Validate group exists and user is a member
+      const group = await ctx.db.get(groupId);
+
+      if (!group) {
+        return { success: false, error: 'Group not found' };
+      }
+
+      if (!group.members.includes(userId)) {
+        return { success: false, error: 'Not a member of this group' };
+      }
+
+      if (group.archived) {
+        return { success: false, error: 'Cannot add expenses to archived group' };
+      }
+
+      validMembers = group.members;
+    } else {
+      // Individual expense - participants must include the payer
+      if (!participantIds!.includes(userId)) {
+        return { success: false, error: 'Payer must be a participant' };
+      }
+      validMembers = participantIds!;
     }
 
     if (!description.trim()) {
@@ -321,10 +340,10 @@ export const addExpense = mutation({
         };
       }
 
-      // Validate all split users are group members
+      // Validate all split users are valid participants
       for (const split of item.splits) {
-        if (!group.members.includes(split.userId)) {
-          return { success: false, error: 'All split users must be group members' };
+        if (!validMembers.includes(split.userId)) {
+          return { success: false, error: 'All split users must be participants' };
         }
       }
     }
@@ -340,7 +359,8 @@ export const addExpense = mutation({
     }));
 
     const expenseId = await ctx.db.insert('expenses', {
-      groupId,
+      groupId: groupId || undefined,
+      participantIds: groupId ? undefined : participantIds,
       payerId: userId,
       description: description.trim(),
       items: processedItems,
@@ -349,6 +369,133 @@ export const addExpense = mutation({
     });
 
     return { success: true, expenseId };
+  },
+});
+
+/**
+ * Update an expense (description, payer, items).
+ * Any participant (payer or in splits) may edit.
+ */
+export const updateExpense = mutation({
+  args: {
+    userId: v.id('users'),
+    expenseId: v.id('expenses'),
+    description: v.optional(v.string()),
+    payerId: v.optional(v.id('users')),
+    items: v.optional(
+      v.array(
+        v.object({
+          name: v.string(),
+          amount: v.number(),
+          splits: v.array(
+            v.object({
+              userId: v.id('users'),
+              share: v.number(),
+            })
+          ),
+        })
+      )
+    ),
+  },
+  handler: async (ctx, args): Promise<{ success: boolean; error?: string }> => {
+    const { userId, expenseId, description, payerId, items } = args;
+
+    const expense = await ctx.db.get(expenseId);
+    if (!expense) {
+      return { success: false, error: 'Expense not found' };
+    }
+
+    // Only participants (payer or anyone in splits) can edit
+    const isParticipant =
+      expense.payerId === userId ||
+      expense.items.some((item) => item.splits.some((s) => s.userId === userId));
+    if (!isParticipant) {
+      return { success: false, error: 'Only participants can edit this expense' };
+    }
+
+    // Get valid members from group or participantIds
+    let validMembers: Id<'users'>[];
+    if (expense.groupId) {
+      const group = await ctx.db.get(expense.groupId);
+      if (!group) {
+        return { success: false, error: 'Group not found' };
+      }
+      validMembers = group.members;
+    } else {
+      validMembers = expense.participantIds || [];
+    }
+
+    const updates: Partial<{
+      description: string;
+      payerId: Id<'users'>;
+      items: Array<{
+        name: string;
+        amount: number;
+        splits: Array<{ userId: Id<'users'>; share: number }>;
+      }>;
+    }> = {};
+
+    // Description
+    if (description !== undefined) {
+      if (!description.trim()) {
+        return { success: false, error: 'Description cannot be empty' };
+      }
+      updates.description = description.trim();
+    }
+
+    // Payer
+    if (payerId !== undefined) {
+      if (!validMembers.includes(payerId)) {
+        return { success: false, error: 'Payer must be a participant' };
+      }
+      updates.payerId = payerId;
+    }
+
+    // Items and splits
+    if (items !== undefined) {
+      if (items.length === 0) {
+        return { success: false, error: 'At least one item is required' };
+      }
+
+      for (const item of items) {
+        if (item.amount <= 0) {
+          return { success: false, error: `Item "${item.name}" must have a positive amount` };
+        }
+        if (item.splits.length === 0) {
+          return { success: false, error: `Item "${item.name}" must have at least one split` };
+        }
+
+        const splitSum = roundMoney(item.splits.reduce((sum, split) => sum + split.share, 0));
+        const itemAmount = roundMoney(item.amount);
+        if (splitSum !== itemAmount) {
+          return {
+            success: false,
+            error: `Split sum (${splitSum}) does not equal item amount (${itemAmount}) for "${item.name}"`,
+          };
+        }
+
+        for (const split of item.splits) {
+          if (!validMembers.includes(split.userId)) {
+            return { success: false, error: 'All split users must be participants' };
+          }
+        }
+      }
+
+      updates.items = items.map((item) => ({
+        name: item.name,
+        amount: roundMoney(item.amount),
+        splits: item.splits.map((split) => ({
+          userId: split.userId,
+          share: roundMoney(split.share),
+        })),
+      }));
+    }
+
+    if (Object.keys(updates).length > 0) {
+      await ctx.db.patch(expenseId, updates);
+    }
+
+    return { success: true };
   },
 });
 

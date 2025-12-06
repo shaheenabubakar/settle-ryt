@@ -1,5 +1,5 @@
 import React, { useState, useEffect, useCallback } from 'react';
-import { View, StyleSheet } from 'react-native';
+import { View, StyleSheet, Image } from 'react-native';
 import { Tabs, useFocusEffect, usePathname } from 'expo-router';
 import { Home, Users, Activity, User } from 'lucide-react-native';
 import { useQuery } from 'convex/react';
@@ -100,6 +100,10 @@ export default function TabsLayout(): React.ReactElement {
           backgroundColor: COLORS.background,
         },
         headerTintColor: COLORS.textPrimary,
+        headerTitleStyle: {
+          fontSize: 24,
+          fontWeight: '700',
+        },
         tabBarStyle: {
           backgroundColor: COLORS.card,
           borderTopWidth: 0,
@@ -115,7 +119,15 @@ export default function TabsLayout(): React.ReactElement {
         name="index"
         options={{
           title: 'Home',
-          headerTitle: 'SettleRyt',
+          headerTitle: () => (
+            <View style={styles.headerLogoContainer}>
+              <Image
+                source={require('../../settleryt-logo.png')}
+                style={styles.headerLogo}
+                resizeMode="contain"
+              />
+            </View>
+          ),
           tabBarIcon: ({ color, size }) => (
             <Home color={color} size={size} />
           ),
@@ -161,5 +173,16 @@ const styles = StyleSheet.create({
     height: 8,
     borderRadius: 4,
     backgroundColor: COLORS.badge,
+  },
+  headerLogoContainer: {
+    justifyContent: 'center',
+    alignItems: 'center',
+    height: '100%',
+  },
+  headerLogo: {
+    width: 110,
+    height: 28,
+    marginTop: 2.75,
+    marginLeft: -2,
   },
 });

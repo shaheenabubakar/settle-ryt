@@ -136,7 +136,7 @@ export const getDashboard = query({
     const recentActivity: DashboardData['recentActivity'] = [];
 
     for (const expense of userExpenses) {
-      const group = await ctx.db.get(expense.groupId);
+      const group = expense.groupId ? await ctx.db.get(expense.groupId) : null;
       const totalAmount = expense.items.reduce((sum, item) => sum + item.amount, 0);
       
       recentActivity.push({
@@ -288,7 +288,7 @@ export const getActivity = query({
     }> = [];
 
     for (const expense of userExpenses) {
-      const group = await ctx.db.get(expense.groupId);
+      const group = expense.groupId ? await ctx.db.get(expense.groupId) : null;
       const payer = await ctx.db.get(expense.payerId);
       const totalAmount = expense.items.reduce((sum, item) => sum + item.amount, 0);
       
@@ -404,11 +404,9 @@ export const getGroup = query({
       }
     }
 
-    // Get group expenses
-    const expenses = await ctx.db
-      .query('expenses')
-      .withIndex('by_group', (q) => q.eq('groupId', args.groupId))
-      .collect();
+    // Get group expenses (filter since groupId is now optional)
+    const allExpenses = await ctx.db.query('expenses').collect();
+    const expenses = allExpenses.filter(e => e.groupId === args.groupId);
 
     const expenseData = [];
     for (const expense of expenses) {
@@ -448,7 +446,7 @@ export const getExpense = query({
       return null;
     }
 
-    const group = await ctx.db.get(expense.groupId);
+    const group = expense.groupId ? await ctx.db.get(expense.groupId) : null;
     const payer = await ctx.db.get(expense.payerId);
 
     // Enrich splits with user data

@@ -24,6 +24,7 @@ import {
   Wallet,
 } from 'lucide-react-native';
 import { useAuth } from '../context/AuthContext';
+import { SuccessModal } from './SuccessModal';
 import { useQuery, useMutation } from 'convex/react';
 import { api } from '../convex/_generated/api';
 import { Id } from '../convex/_generated/dataModel';
@@ -85,6 +86,7 @@ export const EditExpenseModal: React.FC<EditExpenseModalProps> = ({
   const [items, setItems] = useState<ExpenseItem[]>([]);
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [isInitialized, setIsInitialized] = useState(false);
+  const [showSuccessModal, setShowSuccessModal] = useState(false);
 
   // Use refs to store split results
   const splitResultsRef = useRef<Record<string, SplitResult>>({});
@@ -95,7 +97,7 @@ export const EditExpenseModal: React.FC<EditExpenseModalProps> = ({
     expenseId ? { expenseId: expenseId as Id<'expenses'> } : 'skip'
   );
 
-  // Fetch group details to get members
+  // Fetch group details to get members (only if expense has a groupId)
   const groupDetails = useQuery(
     api.queries.getGroup,
     expenseDetail?.groupId ? { groupId: expenseDetail.groupId as Id<'groups'> } : 'skip'
@@ -104,17 +106,38 @@ export const EditExpenseModal: React.FC<EditExpenseModalProps> = ({
   // Mutations
   const updateExpense = useMutation(api.mutations.updateExpense);
 
-  // Get group members for splits
+  // Get members for splits - from group or from expense participants
   const groupMembers = useMemo((): SplitUser[] => {
-    if (!groupDetails?.members) return [];
-    return groupDetails.members.map(m => ({
-      userId: m.userId,
-      username: m.username,
-      name: m.name,
-    }));
-  }, [groupDetails]);
+    // If expense has a group, use group members
+    if (expenseDetail?.groupId && groupDetails?.members) {
+      return groupDetails.members.map(m => ({
+        userId: m.userId,
+        username: m.username,
+        name: m.name,
+      }));
+    }
+    // If expense has participantIds (no group), extract unique participants from splits
+    if (expenseDetail && !expenseDetail.groupId) {
+      // Get unique users from splits
+      const participantMap = new Map<string, { userId: string; username?: string; name?: string }>();
+      expenseDetail.items.forEach(item => {
+        item.splits.forEach(split => {
+          if (!participantMap.has(split.userId)) {
+            participantMap.set(split.userId, {
+              userId: split.userId,
+              username: split.username || 'Unknown',
+              name: split.name,
+            });
+          }
+        });
+      });
+      return Array.from(participantMap.values());
+    }
+    return [];
+  }, [expenseDetail, groupDetails]);
 
-  // Initialize form when expense and group members load
+  // Initialize form when expense and members load
+  // For expenses with groups, wait for groupDetails; for individual expenses, members are from splits
   useEffect(() => {
     if (visible && expenseDetail && groupMembers.length > 0 && !isInitialized) {
       setDescription(expenseDetail.description);
@@ -325,9 +348,7 @@ export const EditExpenseModal: React.FC<EditExpenseModalProps> = ({
       });
 
       if (result.success) {
-        Alert.alert('Success', 'Expense updated!');
-        onSuccess?.();
-        onClose();
+        setShowSuccessModal(true);
       } else {
         Alert.alert('Error', result.error || 'Failed to update expense');
       }
@@ -579,6 +600,18 @@ export const EditExpenseModal: React.FC<EditExpenseModalProps> = ({
           <View style={styles.bottomPadding} />
         </ScrollView>
       </KeyboardAvoidingView>
+
+      {/* Success Modal */}
+      <SuccessModal
+        visible={showSuccessModal}
+        title="Changes Saved"
+        message="Your expense has been updated and all balances have been recalculated."
+        onDismiss={() => {
+          setShowSuccessModal(false);
+          onSuccess?.();
+          onClose();
+        }}
+      />
     </Modal>
   );
 };

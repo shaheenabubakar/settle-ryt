@@ -36,7 +36,8 @@ export default defineSchema({
 
   // Expenses table with itemized splits
   expenses: defineTable({
-    groupId: v.id('groups'),
+    groupId: v.optional(v.id('groups')), // Optional - null for individual expenses
+    participantIds: v.optional(v.array(v.id('users'))), // For expenses without a group
     payerId: v.id('users'),
     description: v.string(),
     items: v.array(
@@ -54,7 +55,6 @@ export default defineSchema({
     category: v.optional(v.string()),
     createdAt: v.number(),
   })
-    .index('by_group', ['groupId'])
     .index('by_payer', ['payerId']),
 
   // Settlements table
