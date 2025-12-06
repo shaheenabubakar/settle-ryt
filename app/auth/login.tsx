@@ -8,10 +8,11 @@ import {
   KeyboardAvoidingView, 
   Platform,
   ScrollView,
+  Image,
 } from 'react-native';
 import { useMutation } from 'convex/react';
 import { api } from '../../convex/_generated/api';
-import { Shield, Eye, EyeOff, Lock, User } from 'lucide-react-native';
+import { Eye, EyeOff, Lock, User } from 'lucide-react-native';
 import { useAuth } from '../../context/AuthContext';
 
 const COLORS = {
@@ -83,11 +84,12 @@ export default function LoginScreen(): React.ReactElement {
       >
         {/* Logo & Header */}
         <View style={styles.header}>
-          <View style={styles.logoContainer}>
-            <Shield color={COLORS.primary} size={48} />
-          </View>
-          <Text style={styles.title}>SettleRyt</Text>
-          <Text style={styles.subtitle}>Secure Malaysian Bill Splitting</Text>
+          <Image
+            source={require('../../settleryt-logo.png')}
+            style={styles.logo}
+            resizeMode="contain"
+          />
+          <Text style={styles.subtitle}>Malaysia's easiest way to split bills</Text>
         </View>
 
         {/* Login Form */}
@@ -210,22 +212,10 @@ const styles = StyleSheet.create({
     alignItems: 'center',
     marginBottom: 40,
   },
-  logoContainer: {
-    width: 80,
-    height: 80,
-    borderRadius: 20,
-    backgroundColor: COLORS.card,
-    alignItems: 'center',
-    justifyContent: 'center',
+  logo: {
+    width: 200,
+    height: 50,
     marginBottom: 16,
-    borderWidth: 1,
-    borderColor: COLORS.border,
-  },
-  title: {
-    fontSize: 32,
-    fontWeight: 'bold',
-    color: COLORS.textPrimary,
-    marginBottom: 8,
   },
   subtitle: {
     fontSize: 16,
@@ -253,9 +243,12 @@ const styles = StyleSheet.create({
     borderColor: COLORS.border,
     borderRadius: 12,
     height: 52,
+    minHeight: 52,
     paddingHorizontal: 16,
     fontSize: 16,
     color: COLORS.textPrimary,
+    // @ts-ignore - web specific
+    outlineStyle: 'none',
   },
   inputWrapper: {
     flexDirection: 'row',
@@ -265,19 +258,30 @@ const styles = StyleSheet.create({
     borderColor: COLORS.border,
     borderRadius: 12,
     height: 52,
+    position: 'relative',
   },
   inputIconContainer: {
     paddingLeft: 16,
+    flexShrink: 0,
   },
   inputWithIcon: {
     flex: 1,
     height: 52,
+    minHeight: 52,
     paddingHorizontal: 12,
+    paddingRight: 48,
     fontSize: 16,
     color: COLORS.textPrimary,
+    // @ts-ignore - web specific
+    outlineStyle: 'none',
   },
   eyeButton: {
-    padding: 16,
+    position: 'absolute',
+    right: 0,
+    height: 52,
+    width: 52,
+    alignItems: 'center',
+    justifyContent: 'center',
   },
   errorText: {
     color: COLORS.error,

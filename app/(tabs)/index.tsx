@@ -8,7 +8,6 @@ import {
   RefreshControl,
   Modal,
   ActivityIndicator,
-  Alert,
   Animated,
   Easing,
 } from 'react-native';
@@ -34,6 +33,7 @@ import { SettleUpModal } from '../../components/SettleUpModal';
 import { EditExpenseModal } from '../../components/EditExpenseModal';
 import { RytBankPromoModal } from '../../components/RytBankPromoModal';
 import { SuccessModal } from '../../components/SuccessModal';
+import { ConfirmModal } from '../../components/ConfirmModal';
 
 const COLORS = {
   background: '#121212',
@@ -136,6 +136,7 @@ export default function HomeScreen(): React.ReactElement {
   const [showExpenseDetail, setShowExpenseDetail] = useState(false);
   const [showEditModal, setShowEditModal] = useState(false);
   const [isDeleting, setIsDeleting] = useState(false);
+  const [showDeleteConfirm, setShowDeleteConfirm] = useState(false);
   const [screenFocusKey, setScreenFocusKey] = useState(0);
 
   // Trigger re-render when screen is focused to ensure fresh data
@@ -376,38 +377,32 @@ export default function HomeScreen(): React.ReactElement {
 
   const handleDelete = (): void => {
     if (!selectedExpenseId || !userId) return;
+    setShowDeleteConfirm(true);
+  };
 
-    Alert.alert(
-      'Delete Expense',
-      'Are you sure you want to delete this expense? This will update all balances and cannot be undone.',
-      [
-        { text: 'Cancel', style: 'cancel' },
-        {
-          text: 'Delete',
-          style: 'destructive',
-          onPress: async () => {
-            setIsDeleting(true);
-            try {
-              const result = await deleteExpense({
-                userId: userId as Id<'users'>,
-                expenseId: selectedExpenseId as Id<'expenses'>,
-              });
+  const confirmDelete = async (): Promise<void> => {
+    if (!selectedExpenseId || !userId) return;
+    
+    setIsDeleting(true);
+    try {
+      const result = await deleteExpense({
+        userId: userId as Id<'users'>,
+        expenseId: selectedExpenseId as Id<'expenses'>,
+      });
 
-              if (result.success) {
-                setShowDeleteSuccess(true);
-              } else {
-                Alert.alert('Error', result.error || 'Failed to delete expense');
-              }
-            } catch (error) {
-              console.error('Delete error:', error);
-              Alert.alert('Error', 'Something went wrong');
-            } finally {
-              setIsDeleting(false);
-            }
-          },
-        },
-      ]
-    );
+      if (result.success) {
+        setShowDeleteConfirm(false);
+        setShowDeleteSuccess(true);
+      } else {
+        setShowDeleteConfirm(false);
+        // Show error - could add an error modal state here too
+      }
+    } catch (error) {
+      console.error('Delete error:', error);
+      setShowDeleteConfirm(false);
+    } finally {
+      setIsDeleting(false);
+    }
   };
 
   const handleEdit = (): void => {
@@ -712,11 +707,23 @@ export default function HomeScreen(): React.ReactElement {
         }}
       />
 
+      {/* Delete Confirm Modal */}
+      <ConfirmModal
+        visible={showDeleteConfirm}
+        type="delete"
+        title="Delete Expense"
+        message="Are you sure? This will update all balances and cannot be undone."
+        confirmText="Delete"
+        cancelText="Cancel"
+        onConfirm={confirmDelete}
+        onCancel={() => setShowDeleteConfirm(false)}
+        isLoading={isDeleting}
+      />
+
       {/* Expense Detail Modal */}
       <Modal
         visible={showExpenseDetail}
         animationType="slide"
-        presentationStyle="pageSheet"
         onRequestClose={closeExpenseDetail}
       >
         <View style={styles.modalContainer}>

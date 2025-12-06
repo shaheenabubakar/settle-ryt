@@ -8,7 +8,6 @@ import {
   TextInput,
   ScrollView,
   ActivityIndicator,
-  Alert,
   KeyboardAvoidingView,
   Platform,
 } from 'react-native';
@@ -25,6 +24,7 @@ import {
 } from 'lucide-react-native';
 import { useAuth } from '../context/AuthContext';
 import { SuccessModal } from './SuccessModal';
+import { AlertModal } from './AlertModal';
 import { useQuery, useMutation } from 'convex/react';
 import { api } from '../convex/_generated/api';
 import { Id } from '../convex/_generated/dataModel';
@@ -87,6 +87,11 @@ export const EditExpenseModal: React.FC<EditExpenseModalProps> = ({
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [isInitialized, setIsInitialized] = useState(false);
   const [showSuccessModal, setShowSuccessModal] = useState(false);
+  const [alertModal, setAlertModal] = useState<{ visible: boolean; title: string; message: string }>({
+    visible: false,
+    title: '',
+    message: '',
+  });
 
   // Use refs to store split results
   const splitResultsRef = useRef<Record<string, SplitResult>>({});
@@ -257,7 +262,7 @@ export const EditExpenseModal: React.FC<EditExpenseModalProps> = ({
   // Remove item
   const removeItem = (itemId: string): void => {
     if (items.length <= 1) {
-      Alert.alert('Error', 'You need at least one item');
+      setAlertModal({ visible: true, title: 'Error', message: 'You need at least one item' });
       return;
     }
     setItems(prev => prev.filter(i => i.id !== itemId));
@@ -315,7 +320,7 @@ export const EditExpenseModal: React.FC<EditExpenseModalProps> = ({
   const handleSubmit = async (): Promise<void> => {
     const error = validateForm();
     if (error) {
-      Alert.alert('Validation Error', error);
+      setAlertModal({ visible: true, title: 'Oops!', message: error });
       return;
     }
 
@@ -350,11 +355,11 @@ export const EditExpenseModal: React.FC<EditExpenseModalProps> = ({
       if (result.success) {
         setShowSuccessModal(true);
       } else {
-        Alert.alert('Error', result.error || 'Failed to update expense');
+        setAlertModal({ visible: true, title: 'Error', message: result.error || 'Failed to update expense' });
       }
     } catch (error) {
       console.error('Update expense error:', error);
-      Alert.alert('Error', 'Something went wrong');
+      setAlertModal({ visible: true, title: 'Error', message: 'Something went wrong' });
     } finally {
       setIsSubmitting(false);
     }
@@ -363,12 +368,16 @@ export const EditExpenseModal: React.FC<EditExpenseModalProps> = ({
   const canSubmit = allSplitsValid && !isSubmitting && groupMembers.length > 0;
   const isSingleItem = items.length === 1;
 
-  if (!expenseDetail || !groupDetails || groupMembers.length === 0) {
+  // Show loading when expense hasn't loaded yet, or when we're waiting for group details
+  const isLoading = !expenseDetail || 
+    (expenseDetail.groupId && !groupDetails) || 
+    groupMembers.length === 0;
+
+  if (isLoading) {
     return (
       <Modal
         visible={visible}
         animationType="slide"
-        presentationStyle="pageSheet"
         onRequestClose={onClose}
       >
         <View style={styles.container}>
@@ -391,7 +400,6 @@ export const EditExpenseModal: React.FC<EditExpenseModalProps> = ({
     <Modal
       visible={visible}
       animationType="slide"
-      presentationStyle="pageSheet"
       onRequestClose={onClose}
     >
       <KeyboardAvoidingView
@@ -612,6 +620,15 @@ export const EditExpenseModal: React.FC<EditExpenseModalProps> = ({
           onClose();
         }}
       />
+
+      {/* Alert Modal */}
+      <AlertModal
+        visible={alertModal.visible}
+        type="warning"
+        title={alertModal.title}
+        message={alertModal.message}
+        onDismiss={() => setAlertModal({ ...alertModal, visible: false })}
+      />
     </Modal>
   );
 };
@@ -691,9 +708,12 @@ const styles = StyleSheet.create({
     borderColor: COLORS.border,
     borderRadius: 12,
     height: 52,
+    minHeight: 52,
     paddingHorizontal: 16,
     fontSize: 16,
     color: COLORS.textPrimary,
+    // @ts-ignore - web specific
+    outlineStyle: 'none',
   },
   payerContainer: {
     backgroundColor: COLORS.card,
@@ -820,8 +840,11 @@ const styles = StyleSheet.create({
     backgroundColor: COLORS.cardElevated,
     borderRadius: 8,
     height: 44,
+    minHeight: 44,
     paddingHorizontal: 12,
     fontSize: 15,
+    // @ts-ignore - web specific
+    outlineStyle: 'none',
     color: COLORS.textPrimary,
   },
   itemAmountWrapper: {
@@ -841,6 +864,9 @@ const styles = StyleSheet.create({
     flex: 1,
     fontSize: 15,
     color: COLORS.textPrimary,
+    minHeight: 36,
+    // @ts-ignore - web specific
+    outlineStyle: 'none',
   },
   itemSplitSection: {
     marginTop: 12,

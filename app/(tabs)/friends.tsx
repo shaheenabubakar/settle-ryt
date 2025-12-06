@@ -8,13 +8,14 @@ import {
   Modal, 
   TextInput,
   ActivityIndicator,
-  Alert,
 } from 'react-native';
 import { UserPlus, X, Check, User } from 'lucide-react-native';
 import { useAuth } from '../../context/AuthContext';
 import { useQuery, useMutation } from 'convex/react';
 import { api } from '../../convex/_generated/api';
 import { Id } from '../../convex/_generated/dataModel';
+import { AlertModal } from '../../components/AlertModal';
+import { SuccessModal } from '../../components/SuccessModal';
 
 const COLORS = {
   background: '#121212',
@@ -34,6 +35,12 @@ export default function FriendsScreen(): React.ReactElement {
   const [friendUsername, setFriendUsername] = useState('');
   const [isAdding, setIsAdding] = useState(false);
   const [addError, setAddError] = useState('');
+  const [showSuccessModal, setShowSuccessModal] = useState(false);
+  const [alertModal, setAlertModal] = useState<{ visible: boolean; title: string; message: string }>({
+    visible: false,
+    title: '',
+    message: '',
+  });
 
   // Fetch friends and pending requests
   const friends = useQuery(
@@ -86,7 +93,7 @@ export default function FriendsScreen(): React.ReactElement {
       if (result.success) {
         setShowAddModal(false);
         setFriendUsername('');
-        Alert.alert('Success', 'Friend request sent!');
+        setShowSuccessModal(true);
       } else {
         setAddError(result.error || 'Failed to send friend request');
       }
@@ -108,10 +115,10 @@ export default function FriendsScreen(): React.ReactElement {
       });
 
       if (!result.success) {
-        Alert.alert('Error', result.error || 'Failed to accept request');
+        setAlertModal({ visible: true, title: 'Error', message: result.error || 'Failed to accept request' });
       }
     } catch (error) {
-      Alert.alert('Error', 'Something went wrong');
+      setAlertModal({ visible: true, title: 'Error', message: 'Something went wrong' });
       console.error('Accept friend error:', error);
     }
   };
@@ -126,10 +133,10 @@ export default function FriendsScreen(): React.ReactElement {
       });
 
       if (!result.success) {
-        Alert.alert('Error', result.error || 'Failed to decline request');
+        setAlertModal({ visible: true, title: 'Error', message: result.error || 'Failed to decline request' });
       }
     } catch (error) {
-      Alert.alert('Error', 'Something went wrong');
+      setAlertModal({ visible: true, title: 'Error', message: 'Something went wrong' });
       console.error('Decline friend error:', error);
     }
   };
@@ -315,6 +322,23 @@ export default function FriendsScreen(): React.ReactElement {
           </View>
         </View>
       </Modal>
+
+      {/* Success Modal */}
+      <SuccessModal
+        visible={showSuccessModal}
+        title="Request Sent!"
+        message="Your friend request has been sent. You'll be notified when they accept."
+        onDismiss={() => setShowSuccessModal(false)}
+      />
+
+      {/* Alert Modal */}
+      <AlertModal
+        visible={alertModal.visible}
+        type="error"
+        title={alertModal.title}
+        message={alertModal.message}
+        onDismiss={() => setAlertModal({ ...alertModal, visible: false })}
+      />
     </View>
   );
 }
@@ -519,10 +543,13 @@ const styles = StyleSheet.create({
     borderColor: COLORS.border,
     borderRadius: 12,
     height: 52,
+    minHeight: 52,
     paddingHorizontal: 16,
     fontSize: 16,
     color: COLORS.textPrimary,
     marginBottom: 16,
+    // @ts-ignore - web specific
+    outlineStyle: 'none',
   },
   errorText: {
     color: COLORS.error,

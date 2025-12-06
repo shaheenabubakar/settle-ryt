@@ -8,7 +8,6 @@ import {
   TextInput,
   ScrollView,
   ActivityIndicator,
-  Alert,
   KeyboardAvoidingView,
   Platform,
 } from 'react-native';
@@ -28,6 +27,7 @@ import {
 } from 'lucide-react-native';
 import { useAuth } from '../context/AuthContext';
 import { SuccessModal } from './SuccessModal';
+import { AlertModal } from './AlertModal';
 import { useQuery, useMutation } from 'convex/react';
 import { api } from '../convex/_generated/api';
 import { Id } from '../convex/_generated/dataModel';
@@ -98,6 +98,11 @@ export const AddExpenseModal: React.FC<AddExpenseModalProps> = ({
   const [items, setItems] = useState<ExpenseItem[]>([]);
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [showSuccessModal, setShowSuccessModal] = useState(false);
+  const [alertModal, setAlertModal] = useState<{ visible: boolean; title: string; message: string }>({
+    visible: false,
+    title: '',
+    message: '',
+  });
 
   // Use refs to store split results to avoid re-render loops
   const splitResultsRef = useRef<Record<string, SplitResult>>({});
@@ -280,7 +285,7 @@ export const AddExpenseModal: React.FC<AddExpenseModalProps> = ({
   // Remove item
   const removeItem = (itemId: string): void => {
     if (items.length <= 1) {
-      Alert.alert('Error', 'You need at least one item');
+      setAlertModal({ visible: true, title: 'Error', message: 'You need at least one item' });
       return;
     }
     setItems(prev => prev.filter(i => i.id !== itemId));
@@ -328,8 +333,8 @@ export const AddExpenseModal: React.FC<AddExpenseModalProps> = ({
     return roundMoney(items.reduce((sum, item) => sum + (parseFloat(item.amount) || 0), 0));
   }, [items]);
 
-  // Check if totals match (for multi-item)
-  const totalsMatch = items.length === 1 || itemsTotal === roundMoney(totalAmount);
+  // Check if totals match (for multi-item mode, compare itemsTotal to totalAmount)
+  const totalsMatch = itemMode === 'single' || itemsTotal === roundMoney(totalAmount);
   const totalsDiff = roundMoney(totalAmount - itemsTotal);
 
   // Check if all splits are valid
@@ -404,7 +409,7 @@ export const AddExpenseModal: React.FC<AddExpenseModalProps> = ({
   const handleSubmit = async (): Promise<void> => {
     const error = validateForm();
     if (error) {
-      Alert.alert('Validation Error', error);
+      setAlertModal({ visible: true, title: 'Oops!', message: error });
       return;
     }
 
@@ -449,11 +454,11 @@ export const AddExpenseModal: React.FC<AddExpenseModalProps> = ({
       if (result.success) {
         setShowSuccessModal(true);
       } else {
-        Alert.alert('Error', result.error || 'Failed to add expense');
+        setAlertModal({ visible: true, title: 'Error', message: result.error || 'Failed to add expense' });
       }
     } catch (error) {
       console.error('Add expense error:', error);
-      Alert.alert('Error', 'Something went wrong');
+      setAlertModal({ visible: true, title: 'Error', message: 'Something went wrong' });
     } finally {
       setIsSubmitting(false);
     }
@@ -483,7 +488,6 @@ export const AddExpenseModal: React.FC<AddExpenseModalProps> = ({
     <Modal
       visible={visible}
       animationType="slide"
-      presentationStyle="pageSheet"
       onRequestClose={onClose}
     >
       <KeyboardAvoidingView
@@ -922,6 +926,15 @@ export const AddExpenseModal: React.FC<AddExpenseModalProps> = ({
           onClose();
         }}
       />
+
+      {/* Alert Modal */}
+      <AlertModal
+        visible={alertModal.visible}
+        type="warning"
+        title={alertModal.title}
+        message={alertModal.message}
+        onDismiss={() => setAlertModal({ ...alertModal, visible: false })}
+      />
     </Modal>
   );
 };
@@ -1054,6 +1067,9 @@ const styles = StyleSheet.create({
     color: COLORS.textPrimary,
     marginLeft: 8,
     paddingVertical: 8,
+    minHeight: 36,
+    // @ts-ignore - web specific
+    outlineStyle: 'none',
   },
   searchResults: {
     backgroundColor: COLORS.card,
@@ -1158,9 +1174,12 @@ const styles = StyleSheet.create({
     borderColor: COLORS.border,
     borderRadius: 12,
     height: 52,
+    minHeight: 52,
     paddingHorizontal: 16,
     fontSize: 16,
     color: COLORS.textPrimary,
+    // @ts-ignore - web specific
+    outlineStyle: 'none',
   },
   amountInputContainer: {
     flexDirection: 'row',
@@ -1184,6 +1203,9 @@ const styles = StyleSheet.create({
     fontSize: 24,
     fontWeight: 'bold',
     color: COLORS.textPrimary,
+    minHeight: 40,
+    // @ts-ignore - web specific
+    outlineStyle: 'none',
   },
   itemCard: {
     backgroundColor: COLORS.card,
@@ -1275,9 +1297,12 @@ const styles = StyleSheet.create({
     backgroundColor: COLORS.cardElevated,
     borderRadius: 8,
     height: 44,
+    minHeight: 44,
     paddingHorizontal: 12,
     fontSize: 15,
     color: COLORS.textPrimary,
+    // @ts-ignore - web specific
+    outlineStyle: 'none',
   },
   itemAmountWrapper: {
     flexDirection: 'row',
@@ -1301,6 +1326,9 @@ const styles = StyleSheet.create({
     flex: 1,
     fontSize: 15,
     color: COLORS.textPrimary,
+    minHeight: 36,
+    // @ts-ignore - web specific
+    outlineStyle: 'none',
   },
   itemSplitSection: {
     marginTop: 12,
@@ -1327,6 +1355,7 @@ const styles = StyleSheet.create({
     backgroundColor: 'rgba(255, 184, 0, 0.08)',
     borderRadius: 10,
     padding: 12,
+    marginTop: 16,
     marginBottom: 10,
     borderWidth: 1,
     borderColor: 'rgba(255, 184, 0, 0.2)',

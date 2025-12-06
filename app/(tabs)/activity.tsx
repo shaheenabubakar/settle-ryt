@@ -7,7 +7,6 @@ import {
   TouchableOpacity,
   RefreshControl,
   Modal,
-  Alert,
   ActivityIndicator,
 } from 'react-native';
 import {
@@ -25,6 +24,8 @@ import { useQuery, useMutation } from 'convex/react';
 import { api } from '../../convex/_generated/api';
 import { Id } from '../../convex/_generated/dataModel';
 import { EditExpenseModal } from '../../components/EditExpenseModal';
+import { ConfirmModal } from '../../components/ConfirmModal';
+import { SuccessModal } from '../../components/SuccessModal';
 
 const COLORS = {
   background: '#121212',
@@ -113,6 +114,8 @@ export default function ActivityScreen(): React.ReactElement {
   const [showDetailModal, setShowDetailModal] = useState(false);
   const [showEditModal, setShowEditModal] = useState(false);
   const [isDeleting, setIsDeleting] = useState(false);
+  const [showDeleteConfirm, setShowDeleteConfirm] = useState(false);
+  const [showDeleteSuccess, setShowDeleteSuccess] = useState(false);
 
   // Fetch activity data
   const activity = useQuery(
@@ -148,39 +151,31 @@ export default function ActivityScreen(): React.ReactElement {
 
   const handleDelete = (): void => {
     if (!selectedExpenseId || !userId) return;
+    setShowDeleteConfirm(true);
+  };
 
-    Alert.alert(
-      'Delete Expense',
-      'Are you sure you want to delete this expense? This will update all balances and cannot be undone.',
-      [
-        { text: 'Cancel', style: 'cancel' },
-        {
-          text: 'Delete',
-          style: 'destructive',
-          onPress: async () => {
-            setIsDeleting(true);
-            try {
-              const result = await deleteExpense({
-                userId: userId as Id<'users'>,
-                expenseId: selectedExpenseId as Id<'expenses'>,
-              });
+  const confirmDelete = async (): Promise<void> => {
+    if (!selectedExpenseId || !userId) return;
+    
+    setIsDeleting(true);
+    try {
+      const result = await deleteExpense({
+        userId: userId as Id<'users'>,
+        expenseId: selectedExpenseId as Id<'expenses'>,
+      });
 
-              if (result.success) {
-                Alert.alert('Deleted', 'Expense has been deleted and balances updated.');
-                closeDetailModal();
-              } else {
-                Alert.alert('Error', result.error || 'Failed to delete expense');
-              }
-            } catch (error) {
-              console.error('Delete error:', error);
-              Alert.alert('Error', 'Something went wrong');
-            } finally {
-              setIsDeleting(false);
-            }
-          },
-        },
-      ]
-    );
+      if (result.success) {
+        setShowDeleteConfirm(false);
+        setShowDeleteSuccess(true);
+      } else {
+        setShowDeleteConfirm(false);
+      }
+    } catch (error) {
+      console.error('Delete error:', error);
+      setShowDeleteConfirm(false);
+    } finally {
+      setIsDeleting(false);
+    }
   };
 
   const handleEdit = (): void => {
@@ -294,7 +289,6 @@ export default function ActivityScreen(): React.ReactElement {
       <Modal
         visible={showDetailModal}
         animationType="slide"
-        presentationStyle="pageSheet"
         onRequestClose={closeDetailModal}
       >
         <View style={styles.modalContainer}>
@@ -405,6 +399,30 @@ export default function ActivityScreen(): React.ReactElement {
           setSelectedExpenseId(null);
         }}
         onSuccess={handleEditSuccess}
+      />
+
+      {/* Delete Confirm Modal */}
+      <ConfirmModal
+        visible={showDeleteConfirm}
+        type="delete"
+        title="Delete Expense"
+        message="Are you sure? This will update all balances and cannot be undone."
+        confirmText="Delete"
+        cancelText="Cancel"
+        onConfirm={confirmDelete}
+        onCancel={() => setShowDeleteConfirm(false)}
+        isLoading={isDeleting}
+      />
+
+      {/* Delete Success Modal */}
+      <SuccessModal
+        visible={showDeleteSuccess}
+        title="Expense Removed"
+        message="The expense has been deleted and all balances have been updated."
+        onDismiss={() => {
+          setShowDeleteSuccess(false);
+          closeDetailModal();
+        }}
       />
     </View>
   );

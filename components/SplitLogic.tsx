@@ -396,7 +396,7 @@ export const SplitLogic: React.FC<SplitLogicProps> = ({
       {validation.isValid && (
         <View style={styles.validContainer}>
           <Check color={COLORS.primary} size={14} />
-          <Text style={styles.validText}>Valid</Text>
+          <Text style={styles.validText}>Split looks good!</Text>
         </View>
       )}
     </View>
@@ -498,24 +498,29 @@ const styles = StyleSheet.create({
     backgroundColor: COLORS.card,
     borderRadius: 6,
     paddingHorizontal: 8,
-    height: 34,
+    height: 36,
+    minWidth: 80,
   },
   inputPrefix: {
     fontSize: 13,
     color: COLORS.textSecondary,
-    marginRight: 2,
+    marginRight: 4,
   },
   inputSuffix: {
     fontSize: 13,
     color: COLORS.textSecondary,
-    marginLeft: 2,
+    marginLeft: 4,
   },
   input: {
     fontSize: 14,
     color: COLORS.textPrimary,
-    minWidth: 50,
+    minWidth: 45,
+    width: 45,
     textAlign: 'right',
     padding: 0,
+    height: 36,
+    // @ts-ignore - web specific
+    outlineStyle: 'none',
   },
   summaryContainer: {
     marginTop: 12,

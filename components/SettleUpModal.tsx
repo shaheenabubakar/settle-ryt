@@ -6,10 +6,10 @@ import {
   Modal,
   TouchableOpacity,
   ScrollView,
-  Alert,
   Animated,
   Easing,
 } from 'react-native';
+import { AlertModal } from './AlertModal';
 import {
   X,
   User,
@@ -68,6 +68,10 @@ export const SettleUpModal: React.FC<SettleUpModalProps> = ({
   const [settledAmount, setSettledAmount] = useState<number>(0);
   const [settleProgress, setSettleProgress] = useState<number>(0);
   const [totalToSettle, setTotalToSettle] = useState<number>(0);
+  const [alertModal, setAlertModal] = useState<{ visible: boolean; message: string }>({
+    visible: false,
+    message: '',
+  });
 
   // Animation values
   const progressAnim = useRef(new Animated.Value(0)).current;
@@ -243,12 +247,12 @@ export const SettleUpModal: React.FC<SettleUpModalProps> = ({
           }, 2500);
         });
       } else {
-        Alert.alert('Error', 'Settlement failed');
+        setAlertModal({ visible: true, message: 'Settlement failed' });
         setPhase('select');
       }
     } catch (error) {
       console.error('Settle error:', error);
-      Alert.alert('Error', 'Something went wrong');
+      setAlertModal({ visible: true, message: 'Something went wrong' });
       setPhase('select');
     }
   };
@@ -466,7 +470,6 @@ export const SettleUpModal: React.FC<SettleUpModalProps> = ({
     <Modal
       visible={visible}
       animationType="slide"
-      presentationStyle="pageSheet"
       onRequestClose={phase === 'select' ? onClose : undefined}
     >
       <View style={styles.container}>
@@ -483,6 +486,15 @@ export const SettleUpModal: React.FC<SettleUpModalProps> = ({
 
         {renderContent()}
       </View>
+
+      {/* Alert Modal */}
+      <AlertModal
+        visible={alertModal.visible}
+        type="error"
+        title="Error"
+        message={alertModal.message}
+        onDismiss={() => setAlertModal({ ...alertModal, visible: false })}
+      />
     </Modal>
   );
 };

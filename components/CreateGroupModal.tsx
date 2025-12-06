@@ -8,7 +8,6 @@ import {
   TextInput,
   ScrollView,
   ActivityIndicator,
-  Alert,
   KeyboardAvoidingView,
   Platform,
 } from 'react-native';
@@ -17,6 +16,8 @@ import { useAuth } from '../context/AuthContext';
 import { useQuery, useMutation } from 'convex/react';
 import { api } from '../convex/_generated/api';
 import { Id } from '../convex/_generated/dataModel';
+import { AlertModal } from './AlertModal';
+import { SuccessModal } from './SuccessModal';
 
 const COLORS = {
   background: '#121212',
@@ -47,6 +48,13 @@ export const CreateGroupModal: React.FC<CreateGroupModalProps> = ({
   const [searchQuery, setSearchQuery] = useState('');
   const [selectedFriendIds, setSelectedFriendIds] = useState<Set<string>>(new Set());
   const [isSubmitting, setIsSubmitting] = useState(false);
+  const [showSuccessModal, setShowSuccessModal] = useState(false);
+  const [successGroupId, setSuccessGroupId] = useState<string | null>(null);
+  const [alertModal, setAlertModal] = useState<{ visible: boolean; title: string; message: string }>({
+    visible: false,
+    title: '',
+    message: '',
+  });
 
   // Fetch friends
   const friends = useQuery(api.queries.getFriends,
@@ -93,11 +101,11 @@ export const CreateGroupModal: React.FC<CreateGroupModalProps> = ({
   // Validate and submit
   const handleSubmit = async (): Promise<void> => {
     if (!groupName.trim()) {
-      Alert.alert('Error', 'Please enter a group name');
+      setAlertModal({ visible: true, title: 'Oops!', message: 'Please enter a group name' });
       return;
     }
     if (selectedFriendIds.size === 0) {
-      Alert.alert('Error', 'Please select at least one friend');
+      setAlertModal({ visible: true, title: 'Oops!', message: 'Please select at least one friend' });
       return;
     }
     if (!userId) return;
@@ -114,15 +122,14 @@ export const CreateGroupModal: React.FC<CreateGroupModalProps> = ({
       });
 
       if (result.success && result.groupId) {
-        Alert.alert('Success', `Group "${groupName}" created!`);
-        onSuccess?.(result.groupId);
-        onClose();
+        setSuccessGroupId(result.groupId);
+        setShowSuccessModal(true);
       } else {
-        Alert.alert('Error', result.error || 'Failed to create group');
+        setAlertModal({ visible: true, title: 'Error', message: result.error || 'Failed to create group' });
       }
     } catch (error) {
       console.error('Create group error:', error);
-      Alert.alert('Error', 'Something went wrong');
+      setAlertModal({ visible: true, title: 'Error', message: 'Something went wrong' });
     } finally {
       setIsSubmitting(false);
     }
@@ -134,7 +141,6 @@ export const CreateGroupModal: React.FC<CreateGroupModalProps> = ({
     <Modal
       visible={visible}
       animationType="slide"
-      presentationStyle="pageSheet"
       onRequestClose={onClose}
     >
       <KeyboardAvoidingView
@@ -248,6 +254,29 @@ export const CreateGroupModal: React.FC<CreateGroupModalProps> = ({
           <View style={styles.bottomPadding} />
         </ScrollView>
       </KeyboardAvoidingView>
+
+      {/* Success Modal */}
+      <SuccessModal
+        visible={showSuccessModal}
+        title="Group Created!"
+        message={`"${groupName}" is ready. Start adding expenses!`}
+        onDismiss={() => {
+          setShowSuccessModal(false);
+          if (successGroupId) {
+            onSuccess?.(successGroupId);
+          }
+          onClose();
+        }}
+      />
+
+      {/* Alert Modal */}
+      <AlertModal
+        visible={alertModal.visible}
+        type="warning"
+        title={alertModal.title}
+        message={alertModal.message}
+        onDismiss={() => setAlertModal({ ...alertModal, visible: false })}
+      />
     </Modal>
   );
 };
@@ -321,9 +350,12 @@ const styles = StyleSheet.create({
     borderColor: COLORS.border,
     borderRadius: 12,
     height: 52,
+    minHeight: 52,
     paddingHorizontal: 16,
     fontSize: 16,
     color: COLORS.textPrimary,
+    // @ts-ignore - web specific
+    outlineStyle: 'none',
   },
   searchContainer: {
     flexDirection: 'row',
@@ -334,12 +366,16 @@ const styles = StyleSheet.create({
     borderRadius: 12,
     paddingHorizontal: 14,
     height: 48,
+    minHeight: 48,
   },
   searchInput: {
     flex: 1,
     fontSize: 15,
     color: COLORS.textPrimary,
     marginLeft: 10,
+    minHeight: 40,
+    // @ts-ignore - web specific
+    outlineStyle: 'none',
   },
   selectedCountContainer: {
     backgroundColor: 'rgba(0, 168, 107, 0.1)',

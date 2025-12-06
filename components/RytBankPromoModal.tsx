@@ -1,4 +1,4 @@
-import React, { useEffect, useRef } from 'react';
+import React, { useEffect, useRef, useState } from 'react';
 import {
   View,
   Text,
@@ -8,7 +8,7 @@ import {
   Animated,
   Easing,
 } from 'react-native';
-import { X, AlertCircle, ArrowRight, Sparkles } from 'lucide-react-native';
+import { X, AlertCircle, ArrowRight, Sparkles, Clock } from 'lucide-react-native';
 
 const COLORS = {
   background: '#121212',
@@ -41,8 +41,30 @@ export const RytBankPromoModal: React.FC<RytBankPromoModalProps> = ({
   const scaleAnim = useRef(new Animated.Value(0.8)).current;
   const opacityAnim = useRef(new Animated.Value(0)).current;
   const bounceAnim = useRef(new Animated.Value(0)).current;
+  const [showComingSoon, setShowComingSoon] = useState(false);
+  const comingSoonScaleAnim = useRef(new Animated.Value(0.8)).current;
+  const comingSoonOpacityAnim = useRef(new Animated.Value(0)).current;
 
   const cashbackAmount = Math.round(settledAmount * 0.01 * 100) / 100; // 1% cashback
+
+  const handleComingSoon = (): void => {
+    setShowComingSoon(true);
+    comingSoonScaleAnim.setValue(0.8);
+    comingSoonOpacityAnim.setValue(0);
+    Animated.parallel([
+      Animated.spring(comingSoonScaleAnim, {
+        toValue: 1,
+        friction: 8,
+        tension: 100,
+        useNativeDriver: true,
+      }),
+      Animated.timing(comingSoonOpacityAnim, {
+        toValue: 1,
+        duration: 200,
+        useNativeDriver: true,
+      }),
+    ]).start();
+  };
 
   useEffect(() => {
     if (visible) {
@@ -148,7 +170,11 @@ export const RytBankPromoModal: React.FC<RytBankPromoModalProps> = ({
           {/* CTA Buttons */}
           <View style={styles.buttonSection}>
             {/* Primary CTA - Link existing account */}
-            <TouchableOpacity style={styles.primaryButton} activeOpacity={0.85}>
+            <TouchableOpacity 
+              style={styles.primaryButton} 
+              activeOpacity={0.85}
+              onPress={handleComingSoon}
+            >
               <Text style={styles.primaryButtonText}>Link Ryt Bank Account</Text>
               <ArrowRight color={COLORS.textPrimary} size={18} />
             </TouchableOpacity>
@@ -161,7 +187,11 @@ export const RytBankPromoModal: React.FC<RytBankPromoModalProps> = ({
             </View>
 
             {/* Secondary CTA - Sign up */}
-            <TouchableOpacity style={styles.secondaryButton} activeOpacity={0.85}>
+            <TouchableOpacity 
+              style={styles.secondaryButton} 
+              activeOpacity={0.85}
+              onPress={handleComingSoon}
+            >
               <Text style={styles.secondaryButtonText}>Sign Up for Ryt Bank</Text>
               <ArrowRight color={COLORS.textSecondary} size={18} />
             </TouchableOpacity>
@@ -173,6 +203,42 @@ export const RytBankPromoModal: React.FC<RytBankPromoModalProps> = ({
             <Text style={styles.laterText}>Maybe later</Text>
           </TouchableOpacity>
         </Animated.View>
+
+        {/* Coming Soon Modal */}
+        {showComingSoon && (
+          <Animated.View
+            style={[
+              styles.comingSoonOverlay,
+              {
+                opacity: comingSoonOpacityAnim,
+              },
+            ]}
+          >
+            <Animated.View
+              style={[
+                styles.comingSoonContainer,
+                {
+                  transform: [{ scale: comingSoonScaleAnim }],
+                },
+              ]}
+            >
+              <View style={styles.comingSoonIconContainer}>
+                <Clock color={COLORS.primary} size={48} strokeWidth={2.5} />
+              </View>
+              <Text style={styles.comingSoonTitle}>Coming Soon</Text>
+              <Text style={styles.comingSoonMessage}>
+                This feature will be added soon. Stay tuned!
+              </Text>
+              <TouchableOpacity
+                style={styles.comingSoonButton}
+                onPress={() => setShowComingSoon(false)}
+                activeOpacity={0.8}
+              >
+                <Text style={styles.comingSoonButtonText}>Got it</Text>
+              </TouchableOpacity>
+            </Animated.View>
+          </Animated.View>
+        )}
       </View>
     </Modal>
   );
@@ -350,6 +416,63 @@ const styles = StyleSheet.create({
     fontSize: 14,
     color: COLORS.textMuted,
     textDecorationLine: 'underline',
+  },
+  comingSoonOverlay: {
+    position: 'absolute',
+    top: 0,
+    left: 0,
+    right: 0,
+    bottom: 0,
+    backgroundColor: 'rgba(0, 0, 0, 0.85)',
+    justifyContent: 'center',
+    alignItems: 'center',
+    padding: 24,
+  },
+  comingSoonContainer: {
+    backgroundColor: COLORS.card,
+    borderRadius: 20,
+    padding: 28,
+    width: '100%',
+    maxWidth: 300,
+    alignItems: 'center',
+    borderWidth: 1,
+    borderColor: COLORS.border,
+  },
+  comingSoonIconContainer: {
+    width: 88,
+    height: 88,
+    borderRadius: 44,
+    backgroundColor: 'rgba(0, 168, 107, 0.12)',
+    alignItems: 'center',
+    justifyContent: 'center',
+    marginBottom: 20,
+  },
+  comingSoonTitle: {
+    fontSize: 22,
+    fontWeight: 'bold',
+    color: COLORS.textPrimary,
+    marginBottom: 8,
+    textAlign: 'center',
+  },
+  comingSoonMessage: {
+    fontSize: 15,
+    color: COLORS.textSecondary,
+    textAlign: 'center',
+    lineHeight: 22,
+    marginBottom: 24,
+  },
+  comingSoonButton: {
+    backgroundColor: COLORS.primary,
+    borderRadius: 12,
+    paddingVertical: 14,
+    paddingHorizontal: 48,
+    width: '100%',
+  },
+  comingSoonButtonText: {
+    fontSize: 16,
+    fontWeight: '600',
+    color: COLORS.textPrimary,
+    textAlign: 'center',
   },
 });
 
