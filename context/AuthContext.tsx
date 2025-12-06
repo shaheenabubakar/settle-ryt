@@ -1,5 +1,28 @@
 import React, { createContext, useContext, useState, useEffect, useCallback } from 'react';
+import { Platform } from 'react-native';
 import * as SecureStore from 'expo-secure-store';
+
+// Storage wrapper - no persistence on web (demo mode)
+const storage = {
+  async getItem(key: string): Promise<string | null> {
+    if (Platform.OS === 'web') {
+      return null; // No persistence on web
+    }
+    return SecureStore.getItemAsync(key);
+  },
+  async setItem(key: string, value: string): Promise<void> {
+    if (Platform.OS === 'web') {
+      return; // No persistence on web
+    }
+    return SecureStore.setItemAsync(key, value);
+  },
+  async deleteItem(key: string): Promise<void> {
+    if (Platform.OS === 'web') {
+      return; // No persistence on web
+    }
+    return SecureStore.deleteItemAsync(key);
+  },
+};
 
 interface AuthContextType {
   isLoading: boolean;
@@ -22,8 +45,8 @@ export function AuthProvider({ children }: { children: React.ReactNode }): React
   useEffect(() => {
     const checkAuth = async (): Promise<void> => {
       try {
-        const storedToken = await SecureStore.getItemAsync('authToken');
-        const storedUserId = await SecureStore.getItemAsync('userId');
+        const storedToken = await storage.getItem('authToken');
+        const storedUserId = await storage.getItem('userId');
 
         if (storedToken && storedUserId) {
           setToken(storedToken);
@@ -42,8 +65,8 @@ export function AuthProvider({ children }: { children: React.ReactNode }): React
 
   const signIn = useCallback(async (newToken: string, newUserId: string): Promise<void> => {
     try {
-      await SecureStore.setItemAsync('authToken', newToken);
-      await SecureStore.setItemAsync('userId', newUserId);
+      await storage.setItem('authToken', newToken);
+      await storage.setItem('userId', newUserId);
       setToken(newToken);
       setUserId(newUserId);
       setIsAuthenticated(true);
@@ -55,8 +78,8 @@ export function AuthProvider({ children }: { children: React.ReactNode }): React
 
   const signOut = useCallback(async (): Promise<void> => {
     try {
-      await SecureStore.deleteItemAsync('authToken');
-      await SecureStore.deleteItemAsync('userId');
+      await storage.deleteItem('authToken');
+      await storage.deleteItem('userId');
       setToken(null);
       setUserId(null);
       setIsAuthenticated(false);

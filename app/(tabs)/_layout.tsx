@@ -1,5 +1,5 @@
 import React, { useState, useEffect, useCallback } from 'react';
-import { View, StyleSheet, Image } from 'react-native';
+import { View, StyleSheet, Image, Platform } from 'react-native';
 import { Tabs, useFocusEffect, usePathname } from 'expo-router';
 import { Home, Users, Activity, User } from 'lucide-react-native';
 import { useQuery } from 'convex/react';
@@ -7,6 +7,22 @@ import { api } from '../../convex/_generated/api';
 import { useAuth } from '../../context/AuthContext';
 import { Id } from '../../convex/_generated/dataModel';
 import * as SecureStore from 'expo-secure-store';
+
+// Storage wrapper - no persistence on web (demo mode)
+const storage = {
+  async getItem(key: string): Promise<string | null> {
+    if (Platform.OS === 'web') {
+      return null; // No persistence on web
+    }
+    return SecureStore.getItemAsync(key);
+  },
+  async setItem(key: string, value: string): Promise<void> {
+    if (Platform.OS === 'web') {
+      return; // No persistence on web
+    }
+    return SecureStore.setItemAsync(key, value);
+  },
+};
 
 const COLORS = {
   background: '#121212',
@@ -52,7 +68,7 @@ export default function TabsLayout(): React.ReactElement {
   useEffect(() => {
     const loadLastTime = async (): Promise<void> => {
       try {
-        const stored = await SecureStore.getItemAsync(LAST_ACTIVITY_KEY);
+        const stored = await storage.getItem(LAST_ACTIVITY_KEY);
         if (stored) {
           setLastActivityTime(parseInt(stored, 10));
         }
@@ -83,7 +99,7 @@ export default function TabsLayout(): React.ReactElement {
           setHasNewActivity(false);
           setLastActivityTime(now);
           try {
-            await SecureStore.setItemAsync(LAST_ACTIVITY_KEY, now.toString());
+            await storage.setItem(LAST_ACTIVITY_KEY, now.toString());
           } catch {
             // Ignore errors
           }
