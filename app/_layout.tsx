@@ -12,9 +12,14 @@ const COLORS = {
 };
 
 // Initialize Convex client
-const convex = new ConvexReactClient(
-  process.env.EXPO_PUBLIC_CONVEX_URL as string
-);
+const convexUrl = process.env.EXPO_PUBLIC_CONVEX_URL;
+if (!convexUrl) {
+  throw new Error(
+    'Missing EXPO_PUBLIC_CONVEX_URL environment variable. ' +
+    'Set it in .env.local for development or in your deployment platform for production.'
+  );
+}
+const convex = new ConvexReactClient(convexUrl);
 
 function useProtectedRoute(): void {
   const { isAuthenticated, isLoading } = useAuth();

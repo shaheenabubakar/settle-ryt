@@ -271,8 +271,10 @@ export default function HomeScreen(): React.ReactElement {
       const newBalance = balances.netBalance;
       currentBalanceRef.current = newBalance;
       
-      // Update display only if not animating and not in settle animation
-      if (balanceBeforeSettleRef.current === null && !isNumberAnimatingRef.current) {
+      // Update display only if not animating and no action is pending
+      if (balanceBeforeSettleRef.current === null && 
+          balanceBeforeActionRef.current === null && 
+          !isNumberAnimatingRef.current) {
         prevBalanceRef.current = newBalance;
         setDisplayedNetBalance(newBalance);
         animatedNetBalance.setValue(newBalance);
