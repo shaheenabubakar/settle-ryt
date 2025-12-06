@@ -182,7 +182,7 @@ const styles = StyleSheet.create({
   headerLogo: {
     width: 110,
     height: 28,
-    marginTop: 2.75,
+    marginTop: 2.8,
     marginLeft: -2,
   },
 });
