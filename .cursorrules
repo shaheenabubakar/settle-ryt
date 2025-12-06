@@ -1,0 +1,54 @@
+# SettleRyt Coding Standards
+
+## General Rules
+
+- Use **functional React components** with hooks only. No class components.
+- Enforce **strict TypeScript** - no `any` types, proper interfaces for all data structures.
+- All components must be typed with explicit return types.
+
+## Convex Integration
+
+- Use `useQuery` and `useMutation` hooks from `convex/react` for all data operations.
+- Define all Convex functions in the `/convex` directory.
+- Use Convex's built-in authentication where applicable.
+
+## Money Handling
+
+- **Handle all money values as 2-decimal floats** (e.g., `12.50`, not `12.5` or `1250` cents).
+- Use `toFixed(2)` when displaying money values.
+- Round calculations using `Math.round(value * 100) / 100` to avoid floating-point errors.
+
+## Code Style
+
+- Use descriptive variable names - no single-letter variables except in loops.
+- Prefer `const` over `let`, never use `var`.
+- Use arrow functions for component definitions and callbacks.
+- Destructure props and state for cleaner code.
+
+## File Structure
+
+- Place screens in `/app` directory following Expo Router conventions.
+- Place reusable components in `/components`.
+- Place utility functions in `/utils`.
+- Place Convex schemas and functions in `/convex`.
+- Place TypeScript types/interfaces in `/types`.
+
+## Styling
+
+- Dark mode only design system:
+  - Background: `#121212`
+  - Card backgrounds: `#1E1E1E`
+  - Primary accent: `#00A86B` (emerald green)
+  - Text primary: `#FFFFFF`
+  - Text secondary: `#B3B3B3`
+- Use Gluestack UI components with dark mode configuration.
+- Maintain consistent spacing using multiples of 4px.
+
+## Best Practices
+
+- Handle loading and error states for all async operations.
+- Use `date-fns` for date manipulation.
+- Use `lodash` sparingly - prefer native JS methods when possible.
+- Write self-documenting code; add comments only for complex logic.
+- Keep components small and focused - extract when > 150 lines.
+
