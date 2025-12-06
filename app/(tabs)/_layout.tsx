@@ -1,6 +1,12 @@
-import React from 'react';
-import { Tabs } from 'expo-router';
+import React, { useState, useEffect, useCallback } from 'react';
+import { View, StyleSheet } from 'react-native';
+import { Tabs, useFocusEffect, usePathname } from 'expo-router';
 import { Home, Users, Activity, User } from 'lucide-react-native';
+import { useQuery } from 'convex/react';
+import { api } from '../../convex/_generated/api';
+import { useAuth } from '../../context/AuthContext';
+import { Id } from '../../convex/_generated/dataModel';
+import * as SecureStore from 'expo-secure-store';
 
 const COLORS = {
   background: '#121212',
@@ -8,9 +14,85 @@ const COLORS = {
   primary: '#00A86B',
   textPrimary: '#FFFFFF',
   inactive: '#666666',
+  badge: '#FF4D4D',
 };
 
+const LAST_ACTIVITY_KEY = 'settleryt_last_activity_time';
+
+// Badge dot component
+const BadgeDot: React.FC = () => (
+  <View style={styles.badgeDot} />
+);
+
+// Activity icon with optional badge
+const ActivityIcon: React.FC<{ color: string; size: number; showBadge: boolean }> = ({ 
+  color, 
+  size, 
+  showBadge 
+}) => (
+  <View>
+    <Activity color={color} size={size} />
+    {showBadge && <BadgeDot />}
+  </View>
+);
+
 export default function TabsLayout(): React.ReactElement {
+  const { userId } = useAuth();
+  const pathname = usePathname();
+  const [hasNewActivity, setHasNewActivity] = useState(false);
+  const [lastActivityTime, setLastActivityTime] = useState<number | null>(null);
+
+  // Fetch activity to check for new items
+  const activity = useQuery(
+    api.queries.getActivity,
+    userId ? { userId: userId as Id<'users'>, limit: 1 } : 'skip'
+  );
+
+  // Load last viewed activity time
+  useEffect(() => {
+    const loadLastTime = async (): Promise<void> => {
+      try {
+        const stored = await SecureStore.getItemAsync(LAST_ACTIVITY_KEY);
+        if (stored) {
+          setLastActivityTime(parseInt(stored, 10));
+        }
+      } catch {
+        // Ignore errors
+      }
+    };
+    loadLastTime();
+  }, []);
+
+  // Check for new activity
+  useEffect(() => {
+    if (activity && activity.length > 0 && lastActivityTime !== null) {
+      const latestTimestamp = activity[0].timestamp;
+      setHasNewActivity(latestTimestamp > lastActivityTime);
+    } else if (activity && activity.length > 0 && lastActivityTime === null) {
+      // First time - mark as new if there's any activity
+      setHasNewActivity(true);
+    }
+  }, [activity, lastActivityTime]);
+
+  // Clear badge when viewing activity tab
+  useFocusEffect(
+    useCallback(() => {
+      if (pathname === '/activity') {
+        const clearBadge = async (): Promise<void> => {
+          const now = Date.now();
+          setHasNewActivity(false);
+          setLastActivityTime(now);
+          try {
+            await SecureStore.setItemAsync(LAST_ACTIVITY_KEY, now.toString());
+          } catch {
+            // Ignore errors
+          }
+        };
+        clearBadge();
+      }
+    }, [pathname])
+  );
+
   return (
     <Tabs
       screenOptions={{
@@ -53,7 +135,7 @@ export default function TabsLayout(): React.ReactElement {
         options={{
           title: 'Activity',
           tabBarIcon: ({ color, size }) => (
-            <Activity color={color} size={size} />
+            <ActivityIcon color={color} size={size} showBadge={hasNewActivity} />
           ),
         }}
       />
@@ -69,3 +151,15 @@ export default function TabsLayout(): React.ReactElement {
     </Tabs>
   );
 }
+
+const styles = StyleSheet.create({
+  badgeDot: {
+    position: 'absolute',
+    top: -2,
+    right: -4,
+    width: 8,
+    height: 8,
+    borderRadius: 4,
+    backgroundColor: COLORS.badge,
+  },
+});

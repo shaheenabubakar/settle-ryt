@@ -123,15 +123,16 @@ export const getDashboard = query({
       }
     }
 
-    // Get recent activity (last 5)
-    const userExpenses = allExpenses
-      .filter((exp) => 
-        exp.payerId === userId || 
-        exp.items.some((item) => item.splits.some((s) => s.userId === userId))
-      )
-      .sort((a, b) => b.createdAt - a.createdAt)
-      .slice(0, 5);
+    // Get all user expenses (filter only, no slicing yet)
+    const userExpenses = allExpenses.filter((exp) => 
+      exp.payerId === userId || 
+      exp.items.some((item) => item.splits.some((s) => s.userId === userId))
+    );
 
+    // Get all settlements (no slicing yet)
+    const allSettlements = [...settlementsFrom, ...settlementsTo];
+
+    // Build activity items from ALL expenses and settlements
     const recentActivity: DashboardData['recentActivity'] = [];
 
     for (const expense of userExpenses) {
@@ -148,11 +149,6 @@ export const getDashboard = query({
       });
     }
 
-    // Add recent settlements
-    const allSettlements = [...settlementsFrom, ...settlementsTo]
-      .sort((a, b) => b.timestamp - a.timestamp)
-      .slice(0, 5);
-
     for (const settlement of allSettlements) {
       const isFrom = settlement.fromId === userId;
       const otherUser = await ctx.db.get(isFrom ? settlement.toId : settlement.fromId);
@@ -161,14 +157,14 @@ export const getDashboard = query({
         type: 'settlement',
         id: settlement._id,
         description: isFrom 
-          ? `Paid ${otherUser?.username || 'Unknown'}`
-          : `Received from ${otherUser?.username || 'Unknown'}`,
+          ? `You paid ${otherUser?.username || 'someone'}`
+          : `${otherUser?.username || 'Someone'} paid you`,
         amount: settlement.amount,
         timestamp: settlement.timestamp,
       });
     }
 
-    // Sort all activity by timestamp
+    // Sort all activity by timestamp FIRST, then slice to get 10 most recent
     recentActivity.sort((a, b) => b.timestamp - a.timestamp);
 
     // Get user's groups
@@ -322,13 +318,16 @@ export const getActivity = query({
     }
 
     for (const settlement of [...settlementsFrom, ...settlementsTo]) {
+      const isFrom = settlement.fromId === userId;
       const fromUser = await ctx.db.get(settlement.fromId);
       const toUser = await ctx.db.get(settlement.toId);
 
       activity.push({
         type: 'settlement',
         id: settlement._id,
-        description: `${fromUser?.username || 'Someone'} paid ${toUser?.username || 'Someone'}`,
+        description: isFrom 
+          ? `You paid ${toUser?.username || 'someone'}`
+          : `${fromUser?.username || 'Someone'} paid you`,
         amount: settlement.amount,
         timestamp: settlement.timestamp,
         participants: [fromUser?.username || '', toUser?.username || ''].filter(Boolean),

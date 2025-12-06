@@ -537,4 +537,3 @@ export const leaveGroup = mutation({
     return { success: true };
   },
 });
-

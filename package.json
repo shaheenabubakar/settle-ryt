@@ -12,6 +12,7 @@
   "dependencies": {
     "@gluestack-style/react": "^1.0.57",
     "@gluestack-ui/themed": "^1.1.73",
+    "@google/generative-ai": "^0.24.1",
     "convex": "^1.30.0",
     "date-fns": "^4.1.0",
     "expo": "~54.0.27",
